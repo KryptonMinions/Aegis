@@ -1,0 +1,53 @@
+name: Deploy Backend to AppSail
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'backend/**'
+      - '.github/workflows/deploy-backend.yml'
+  workflow_dispatch:
+
+jobs:
+  lint:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: backend
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+          cache: 'pip'
+          cache-dependency-path: backend/requirements.txt
+
+      - run: pip install -r requirements.txt
+
+      # Basic import check — catches broken imports before deploy.
+      - run: python -c "from app.main import app; print('Import OK')"
+
+  deploy:
+    needs: lint
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Install Catalyst CLI
+        run: npm install -g zcatalyst-cli
+
+      - name: Build Docker image (linux/amd64)
+        working-directory: backend
+        run: docker build --platform linux/amd64 -t ksp-backend .
+
+      # AppSail runs linux/amd64. The --platform flag above is explicit even though
+      # ubuntu-latest is amd64 natively (see steering doc §5.1).
+      - name: Deploy to AppSail
+        env:
+          CATALYST_TOKEN: ${{ secrets.CATALYST_TOKEN }}
+        run: catalyst deploy --only appsail --project-id "${{ secrets.CATALYST_PROJECT_ID }}"
