@@ -98,7 +98,7 @@ jobs:
       - name: Deploy to Web Client Hosting
         env:
           CATALYST_TOKEN: ${{ secrets.CATALYST_TOKEN }}
-        run: catalyst deploy --only client --project-id "${{ secrets.CATALYST_PROJECT_ID }}"
+        run: catalyst deploy --only client
 
       - name: Commit version bump
         run: |

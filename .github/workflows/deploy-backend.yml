@@ -26,7 +26,13 @@ jobs:
       - run: pip install -r requirements.txt
 
       # Basic import check — catches broken imports before deploy.
+      # Dummy values satisfy the required Settings fields (app.config); real
+      # secrets live in the Catalyst console, not CI (see steering doc §5.2).
       - run: python -c "from app.main import app; print('Import OK')"
+        env:
+          SUPABASE_URL: https://ci.invalid
+          SUPABASE_PUBLISHABLE_KEY: ci-dummy
+          SUPABASE_SECRET_KEY: ci-dummy
 
   deploy:
     needs: lint
@@ -50,4 +56,4 @@ jobs:
       - name: Deploy to AppSail
         env:
           CATALYST_TOKEN: ${{ secrets.CATALYST_TOKEN }}
-        run: catalyst deploy --only appsail --project-id "${{ secrets.CATALYST_PROJECT_ID }}"
+        run: catalyst deploy --only appsail
