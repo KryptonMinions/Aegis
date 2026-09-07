@@ -56,6 +56,7 @@ jobs:
       - name: Deploy to AppSail
         run: >
           catalyst deploy --only appsail
+          --dc in
           --project "${{ secrets.CATALYST_PROJECT_ID }}"
           --org "${{ secrets.CATALYST_ORG_ID }}"
           --token "${{ secrets.CATALYST_TOKEN }}"
