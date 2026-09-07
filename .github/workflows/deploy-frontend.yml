@@ -96,9 +96,11 @@ jobs:
         run: npm install -g zcatalyst-cli
 
       - name: Deploy to Web Client Hosting
-        env:
-          CATALYST_TOKEN: ${{ secrets.CATALYST_TOKEN }}
-        run: catalyst deploy --only client
+        run: >
+          catalyst deploy --only client
+          --project "${{ secrets.CATALYST_PROJECT_ID }}"
+          --org "${{ secrets.CATALYST_ORG_ID }}"
+          --token "${{ secrets.CATALYST_TOKEN }}"
 
       - name: Commit version bump
         run: |

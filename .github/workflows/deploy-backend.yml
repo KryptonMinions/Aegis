@@ -54,6 +54,8 @@ jobs:
       # AppSail runs linux/amd64. The --platform flag above is explicit even though
       # ubuntu-latest is amd64 natively (see steering doc §5.1).
       - name: Deploy to AppSail
-        env:
-          CATALYST_TOKEN: ${{ secrets.CATALYST_TOKEN }}
-        run: catalyst deploy --only appsail
+        run: >
+          catalyst deploy --only appsail
+          --project "${{ secrets.CATALYST_PROJECT_ID }}"
+          --org "${{ secrets.CATALYST_ORG_ID }}"
+          --token "${{ secrets.CATALYST_TOKEN }}"
