@@ -44,6 +44,11 @@ class Settings(BaseSettings):
     answer_cache_enabled: bool = False
     answer_cache_ttl_lookup_s: int = 1800
     answer_cache_ttl_analytic_s: int = 300
+    # R2_steering_docs.md R-4. Run independent tool calls in one iteration
+    # concurrently. run_sql calls stay serialized (executor budgets). Off by
+    # default (R-5); flag off = byte-identical sequential execution.
+    parallel_tools_enabled: bool = False
+    parallel_tools_max: int = 4
     # ISO date (YYYY-MM-DD); when set, overrides "today" for relative-date
     # resolution and prompts. Align with SEED_DEMO_DATE.
     ask_reference_date: str = ""

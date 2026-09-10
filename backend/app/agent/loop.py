@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import json
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from functools import lru_cache
 from pathlib import Path
 from time import monotonic
@@ -110,34 +110,33 @@ class AgentLoop:
             call_ids = [c.id or f"call_{i}" for i, c in enumerate(response.tool_calls)]
             messages.append(_assistant_tool_call_message(response, call_ids))
 
-            for call, call_id in zip(response.tool_calls, call_ids):
+            pairs = list(zip(response.tool_calls, call_ids))
+
+            if self._settings.parallel_tools_enabled and len(pairs) > 1:
+                abort = await self._run_iteration_parallel(
+                    pairs, tool_by_name, ctx, scratchpad, messages, consecutive_failures, specialist
+                )
+                if abort is not None:
+                    return abort
+                continue
+
+            # --- Sequential path (flag off): unchanged from v1 ----------------
+            for call, call_id in pairs:
                 tool = tool_by_name.get(call.name)
                 label = tool.label if tool else call.name
                 scratchpad.emit_event({
                     "type": "tool_started", "tool": call.name, "label": label, "args": call.arguments,
                 })
-                if tool is None:
-                    result_payload: dict = {"ok": False, "error": f"unknown tool '{call.name}'"}
-                else:
-                    try:
-                        result = await asyncio.wait_for(
-                            tool.run(call.arguments, ctx), timeout=self._settings.ask_tool_timeout_s
-                        )
-                        if result.hard_refuse_reason:
-                            scratchpad.emit_event({
-                                "type": "hard_refuse", "tool": call.name, "reason": result.hard_refuse_reason,
-                            })
-                            return LoopResult(
-                                final_answer=FinalAnswer(status="no_answer", reason=result.hard_refuse_reason),
-                                abort_reason=f"hard_refuse:{call.name}",
-                            )
-                        result_payload = {"ok": result.ok, "data": result.data, "error": result.error}
-                        if result.payload_id:
-                            result_payload["payload_id"] = result.payload_id
-                    except asyncio.TimeoutError:
-                        result_payload = {"ok": False, "error": f"tool '{call.name}' timed out"}
-                    except Exception as exc:  # noqa: BLE001 — tool errors are values, not loop exceptions
-                        result_payload = {"ok": False, "error": f"tool '{call.name}' raised: {exc}"}
+                result_payload = await self._execute_tool(tool, call, ctx)
+                hard_refuse = result_payload.pop("_hard_refuse", None)
+                if hard_refuse:
+                    scratchpad.emit_event({
+                        "type": "hard_refuse", "tool": call.name, "reason": hard_refuse,
+                    })
+                    return LoopResult(
+                        final_answer=FinalAnswer(status="no_answer", reason=hard_refuse),
+                        abort_reason=f"hard_refuse:{call.name}",
+                    )
 
                 scratchpad.record_tool_use(call.name)
                 summary = json.dumps(result_payload, default=str)
@@ -156,6 +155,99 @@ class AgentLoop:
                 messages.append(_wrapped_tool_message(call.name, call_id, result_payload, scratchpad))
 
         return self._abort(scratchpad, specialist, "max_iterations_exceeded")
+
+    async def _run_iteration_parallel(
+        self, pairs, tool_by_name, ctx, scratchpad, messages, consecutive_failures, specialist
+    ) -> LoopResult | None:
+        """R2 R-4. Independent calls run concurrently on private child
+        scratchpads; run_sql stays serialized (executor budgets). Children are
+        merged into the real scratchpad in original call order, so p*/c* id
+        assignment stays deterministic regardless of completion order. Results
+        are then processed in call order — one sibling's failure/refuse never
+        aborts the others mid-flight, but the turn still stops once collected."""
+        for call, _ in pairs:
+            tool = tool_by_name.get(call.name)
+            scratchpad.emit_event({
+                "type": "tool_started", "tool": call.name,
+                "label": tool.label if tool else call.name, "args": call.arguments,
+            })
+
+        sem = asyncio.Semaphore(self._settings.parallel_tools_max)
+        children: dict[int, TurnScratchpad] = {}
+
+        async def _run_child(idx: int, call) -> dict:
+            async with sem:
+                child = TurnScratchpad()
+                children[idx] = child
+                return await self._execute_tool(
+                    tool_by_name.get(call.name), call, replace(ctx, scratchpad=child)
+                )
+
+        results: list[dict] = [{} for _ in pairs]
+        tasks = {
+            idx: asyncio.create_task(_run_child(idx, call))
+            for idx, (call, _) in enumerate(pairs)
+            if call.name != "run_sql"
+        }
+        for idx, (call, _) in enumerate(pairs):
+            if idx not in tasks:  # run_sql — serialized, on the real scratchpad, in call order
+                results[idx] = await self._execute_tool(tool_by_name.get(call.name), call, ctx)
+        for idx, task in tasks.items():
+            results[idx] = await task
+
+        for idx, (call, call_id) in enumerate(pairs):
+            result_payload = results[idx]
+            child = children.get(idx)
+            if child is not None and not result_payload.get("_hard_refuse"):
+                _merge_child(scratchpad, child, result_payload)
+
+            hard_refuse = result_payload.pop("_hard_refuse", None)
+            if hard_refuse:
+                scratchpad.emit_event({"type": "hard_refuse", "tool": call.name, "reason": hard_refuse})
+                return LoopResult(
+                    final_answer=FinalAnswer(status="no_answer", reason=hard_refuse),
+                    abort_reason=f"hard_refuse:{call.name}",
+                )
+
+            tool = tool_by_name.get(call.name)
+            scratchpad.record_tool_use(call.name)
+            summary = json.dumps(result_payload, default=str)
+            scratchpad.emit_event({
+                "type": "tool_finished", "tool": call.name,
+                "label": tool.label if tool else call.name, "ok": result_payload["ok"],
+                "result_summary": summary[:2000],
+            })
+
+            if result_payload["ok"]:
+                consecutive_failures[call.name] = 0
+            else:
+                consecutive_failures[call.name] = consecutive_failures.get(call.name, 0) + 1
+                if consecutive_failures[call.name] >= 2:
+                    return self._abort(scratchpad, specialist, f"tool_repeated_failure:{call.name}")
+
+            messages.append(_wrapped_tool_message(call.name, call_id, result_payload, scratchpad))
+        return None
+
+    async def _execute_tool(self, tool: Tool | None, call, ctx: ToolContext) -> dict:
+        """Run one tool call, timeout + exceptions folded to a result payload
+        dict (§6.2.6). A hard refuse is surfaced via the `_hard_refuse` key so
+        the caller can abort the whole turn in call order."""
+        if tool is None:
+            return {"ok": False, "error": f"unknown tool '{call.name}'"}
+        try:
+            result = await asyncio.wait_for(
+                tool.run(call.arguments, ctx), timeout=self._settings.ask_tool_timeout_s
+            )
+        except asyncio.TimeoutError:
+            return {"ok": False, "error": f"tool '{call.name}' timed out"}
+        except Exception as exc:  # noqa: BLE001 — tool errors are values, not loop exceptions
+            return {"ok": False, "error": f"tool '{call.name}' raised: {exc}"}
+        if result.hard_refuse_reason:
+            return {"ok": False, "error": "hard_refuse", "_hard_refuse": result.hard_refuse_reason}
+        payload = {"ok": result.ok, "data": result.data, "error": result.error}
+        if result.payload_id:
+            payload["payload_id"] = result.payload_id
+        return payload
 
     async def _parse_with_repair(
         self, content: str | None, messages: list[dict], specialist: SpecialistConfig, scratchpad: TurnScratchpad
@@ -276,6 +368,22 @@ def _build_dynamic_suffix(frame: SemanticFrame, recent: list) -> str:
         parts.append(f"## Conversation context (most recent {len(recent)} turns)\n{lines}")
 
     return "\n\n".join(parts)
+
+
+def _merge_child(parent: TurnScratchpad, child: TurnScratchpad, result_payload: dict) -> None:
+    """Replay a parallel tool call's registrations onto the real scratchpad in
+    call order (R2 §5.2). The child assigned its own p*/c* ids in isolation;
+    re-registering here gives the deterministic, call-ordered ids and the
+    tool result's embedded payload_id is rewritten to match."""
+    id_map: dict[str, str] = {}
+    for old_id, block in child.payloads.items():
+        id_map[old_id] = parent.register_payload(block)
+    for entry in child.provenance.values():
+        parent.register_provenance(entry.kind, entry.ref)
+    parent.records_accessed |= child.records_accessed
+    old_pid = result_payload.get("payload_id")
+    if old_pid in id_map:
+        result_payload["payload_id"] = id_map[old_pid]
 
 
 def _assistant_tool_call_message(response, call_ids: list[str]) -> dict:
