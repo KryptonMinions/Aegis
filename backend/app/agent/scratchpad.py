@@ -47,7 +47,8 @@ class TurnScratchpad:
     provenance: dict[str, ProvenanceEntry] = field(default_factory=dict)
     records_accessed: set[str] = field(default_factory=set)
     usage: dict[str, int] = field(default_factory=lambda: {
-        "prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0
+        "prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0,
+        "cache_read_tokens": 0, "cache_write_tokens": 0,
     })
     events: list[dict[str, Any]] = field(default_factory=list)
     tools_used: list[str] = field(default_factory=list)
@@ -97,7 +98,8 @@ class TurnScratchpad:
         return self.payloads.get(payload_id)
 
     def add_usage(self, usage: dict[str, int]) -> None:
-        for key in ("prompt_tokens", "completion_tokens", "total_tokens"):
+        for key in ("prompt_tokens", "completion_tokens", "total_tokens",
+                    "cache_read_tokens", "cache_write_tokens"):
             self.usage[key] += usage.get(key, 0)
 
     def record_tool_use(self, tool_name: str) -> None:

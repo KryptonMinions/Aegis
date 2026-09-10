@@ -156,6 +156,11 @@ class LLMClient:
                 )
             )
         usage = raw.get("usage") or {}
+        # Read from prompt cache (OpenAI/Gemini OpenAI-compat shape). Absent on
+        # providers/turns without caching -> 0. No "cache write" field exists on
+        # this transport (that is Anthropic-specific), so cache_write_tokens
+        # stays 0 until an Anthropic profile is added.
+        cached = (usage.get("prompt_tokens_details") or {}).get("cached_tokens", 0)
         return LLMResponse(
             content=message.get("content"),
             tool_calls=tool_calls,
@@ -163,6 +168,8 @@ class LLMClient:
                 "prompt_tokens": usage.get("prompt_tokens", 0),
                 "completion_tokens": usage.get("completion_tokens", 0),
                 "total_tokens": usage.get("total_tokens", 0),
+                "cache_read_tokens": cached or 0,
+                "cache_write_tokens": 0,
             },
             finish_reason=choice.get("finish_reason"),
             raw=raw,

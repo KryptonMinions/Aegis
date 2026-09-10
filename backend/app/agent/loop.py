@@ -213,44 +213,69 @@ class AgentLoop:
         thread_id: str,
         jurisdiction_note: str | None,
     ) -> list[dict]:
-        shared = _load_prompt("shared.v1.md")
-        specialist_prompt = _load_prompt(specialist.prompt_file)
+        # R2 R-2: the prefix is assembled once and is byte-identical across every
+        # iteration of this turn (the message list is built here once, then only
+        # appended to). The suffix carries the turn's dynamic context. On the
+        # current OpenAI-compatible Gemini transport there is no request-level
+        # cache_control field — Gemini 2.5 implicit caching is automatic and
+        # server-side — so PROMPT_CACHE_ENABLED gates instrumentation only; the
+        # split keeps the prefix isolated for when an explicit-cache transport
+        # (Anthropic, Gemini native) is added.
+        prefix = _build_static_prefix(specialist, user, self._settings, jurisdiction_note)
 
-        sections: list[str] = []
+        recent = await get_thread_store(self._settings).get_recent(thread_id)
+        suffix = _build_dynamic_suffix(frame, recent)
 
-        operator_line = f"Role: {user.role.value}"
-        if user.officer_id:
-            operator_line += f"; officer_id: {user.officer_id}"
-        sections.append(f"## Your operator\n{operator_line}")
-
-        ref_date = self._settings.ask_reference_date or "server date (not pinned)"
-        sections.append(f"## Reference date\n{ref_date}")
-
-        sections.append(f"## Available data\n{_available_data_section(specialist.sql_scope)}")
-
-        if jurisdiction_note:
-            sections.append(f"## Jurisdiction scope\n{jurisdiction_note}")
-
-        if frame.entities:
-            ent_lines = "\n".join(f'- {e.kind}: "{e.text}"' for e in frame.entities)
-            sections.append(
-                f"## Resolved entities (candidate mentions — not yet DB-canonical)\n{ent_lines}\n"
-                "Call resolve_entity to get canonical IDs before relying on these."
-            )
-
-        thread_store = get_thread_store(self._settings)
-        recent = await thread_store.get_recent(thread_id)
-        if recent:
-            lines = "\n".join(f"- [{t.specialist}] {t.query} -> {t.answer_summary}" for t in recent)
-            sections.append(f"## Conversation context (most recent {len(recent)} turns)\n{lines}")
-
-        system_prompt = "\n\n".join([shared, specialist_prompt, *sections])
+        system_prompt = prefix if not suffix else f"{prefix}\n\n{suffix}"
         user_content = f"Raw query: {frame.raw_query}\nNormalized (English): {frame.normalized_query}"
 
         return [
             {"role": "system", "content": system_prompt},
             {"role": "user", "content": user_content},
         ]
+
+
+def _build_static_prefix(
+    specialist: SpecialistConfig,
+    user: CurrentUser,
+    settings: Settings,
+    jurisdiction_note: str | None,
+) -> str:
+    """Turn-static system-prompt prefix (R2 R-2). MUST NOT interpolate any
+    per-iteration value (timestamps, counters) — see §3.2."""
+    parts = [_load_prompt("shared.v1.md"), _load_prompt(specialist.prompt_file)]
+
+    operator_line = f"Role: {user.role.value}"
+    if user.officer_id:
+        operator_line += f"; officer_id: {user.officer_id}"
+    parts.append(f"## Your operator\n{operator_line}")
+
+    ref_date = settings.ask_reference_date or "server date (not pinned)"
+    parts.append(f"## Reference date\n{ref_date}")
+
+    parts.append(f"## Available data\n{_available_data_section(specialist.sql_scope)}")
+
+    if jurisdiction_note:
+        parts.append(f"## Jurisdiction scope\n{jurisdiction_note}")
+
+    return "\n\n".join(parts)
+
+
+def _build_dynamic_suffix(frame: SemanticFrame, recent: list) -> str:
+    parts: list[str] = []
+
+    if frame.entities:
+        ent_lines = "\n".join(f'- {e.kind}: "{e.text}"' for e in frame.entities)
+        parts.append(
+            f"## Resolved entities (candidate mentions — not yet DB-canonical)\n{ent_lines}\n"
+            "Call resolve_entity to get canonical IDs before relying on these."
+        )
+
+    if recent:
+        lines = "\n".join(f"- [{t.specialist}] {t.query} -> {t.answer_summary}" for t in recent)
+        parts.append(f"## Conversation context (most recent {len(recent)} turns)\n{lines}")
+
+    return "\n\n".join(parts)
 
 
 def _assistant_tool_call_message(response, call_ids: list[str]) -> dict:

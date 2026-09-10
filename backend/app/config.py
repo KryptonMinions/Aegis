@@ -33,6 +33,11 @@ class Settings(BaseSettings):
     ask_sql_row_cap: int = 200
     ask_sql_statement_timeout_ms: int = 8000
     ask_thread_ttl_s: int = 3600
+    # R2_steering_docs.md R-2. Off by default (R-5). No request-level effect on
+    # the current OpenAI-compat Gemini transport (implicit caching is automatic
+    # server-side); gates cache-token instrumentation into ask_turn_traces and
+    # reserves the seam for an explicit-cache transport later.
+    prompt_cache_enabled: bool = False
     # ISO date (YYYY-MM-DD); when set, overrides "today" for relative-date
     # resolution and prompts. Align with SEED_DEMO_DATE.
     ask_reference_date: str = ""
