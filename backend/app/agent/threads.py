@@ -24,8 +24,13 @@ from typing import Any, Protocol
 
 import httpx
 
-from app.catalyst import cache_url, catalyst_headers
+from app.catalyst import CatalystError, cache_url, catalyst_headers
 from app.config import Settings
+
+# R2 R-5: thread memory is best-effort. A backend outage (HTTP error, or an
+# OAuth refresh failure surfacing as CatalystError) degrades to no context,
+# never a failed turn.
+_THREAD_STORE_ERRORS = (httpx.HTTPError, CatalystError)
 
 
 @dataclass
@@ -140,7 +145,7 @@ class CatalystCacheThreadStore:
                 items.append(asdict(turn))
                 items = items[-_CATALYST_MAX_STORED_TURNS:]
                 await self._put_raw(thread_id, items)
-            except httpx.HTTPError:
+            except _THREAD_STORE_ERRORS:
                 # Conversation memory is a quality-of-life feature, not
                 # critical path — never fail the user's turn over it.
                 pass
@@ -148,7 +153,7 @@ class CatalystCacheThreadStore:
     async def get_recent(self, thread_id: str, limit: int = 6) -> list[TurnSummary]:
         try:
             items = await self._get_raw(thread_id)
-        except httpx.HTTPError:
+        except _THREAD_STORE_ERRORS:
             return []
         turns = [TurnSummary(**item) for item in items]
         return turns[-limit:]

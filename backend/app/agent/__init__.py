@@ -14,6 +14,7 @@ AskRequest + CurrentUser
 
 from __future__ import annotations
 
+import logging
 import time
 import uuid
 from datetime import datetime, timezone
@@ -36,8 +37,21 @@ from .specialists import SpecialistConfig, intel_analyst_scoped_tools
 from .threads import TurnSummary, get_thread_store
 from .usage_log import log_turn_usage
 
+_logger = logging.getLogger("ksp.agent")
 _STATION_CACHE_TTL_S = 600
 _station_cache: dict[str, tuple[float, dict | None]] = {}
+
+
+async def _append_thread_summary(
+    settings: Settings, thread_id: str, summary: "TurnSummary"
+) -> None:
+    """R2 R-5: thread memory is best-effort — a store outage never fails the
+    turn (the in-memory backend can't raise; the catalyst one already swallows
+    its own transport errors — this is the belt-and-suspenders guard)."""
+    try:
+        await get_thread_store(settings).append(thread_id, summary)
+    except Exception:  # noqa: BLE001
+        _logger.warning("thread store append failed for %s; continuing", thread_id, exc_info=True)
 
 
 async def _resolve_operator_station(user: CurrentUser, settings: Settings) -> dict | None:
@@ -176,12 +190,16 @@ async def run_turn(
         )
     if cache_ttl > 0:
         cache_key = frame_key(frame, user, scoped_station_id, settings)
-        hit = get_answer_cache().get(cache_key)
+        try:
+            hit = get_answer_cache().get(cache_key)
+        except Exception:  # noqa: BLE001 — cache outage falls through to the loop (R-5)
+            _logger.warning("answer cache lookup failed; running loop", exc_info=True)
+            hit = None
         if hit is not None:
             scratchpad.emit_event({"type": "cache_hit", "label": "Answered from recent results"})
             scratchpad.records_accessed = set(hit.records_accessed)
-            await get_thread_store(settings).append(
-                thread_id,
+            await _append_thread_summary(
+                settings, thread_id,
                 TurnSummary(
                     query=frame.raw_query,
                     specialist=hit.specialist_name or specialist.name,
@@ -214,25 +232,26 @@ async def run_turn(
 
     answered = not (message.blocks and message.blocks[0].type == "no_answer")
     if cache_key is not None and answered:
-        get_answer_cache().put(
-            cache_key,
-            CacheEntry(
-                message=message,
-                records_accessed=sorted(scratchpad.records_accessed),
-                query_class=frame.query_class,
-                specialist_name=specialist.name,
-                expires_at=time.time() + cache_ttl,
-            ),
-        )
+        try:
+            get_answer_cache().put(
+                cache_key,
+                CacheEntry(
+                    message=message,
+                    records_accessed=sorted(scratchpad.records_accessed),
+                    query_class=frame.query_class,
+                    specialist_name=specialist.name,
+                    expires_at=time.time() + cache_ttl,
+                ),
+            )
+        except Exception:  # noqa: BLE001 — a cache write failure never fails the turn (R-5)
+            _logger.warning("answer cache store failed; continuing", exc_info=True)
 
-    answer_summary = _summarize(message)
-    thread_store = get_thread_store(settings)
-    await thread_store.append(
-        thread_id,
+    await _append_thread_summary(
+        settings, thread_id,
         TurnSummary(
             query=frame.raw_query,
             specialist=specialist.name,
-            answer_summary=answer_summary[:200],
+            answer_summary=_summarize(message)[:200],
             entity_ids=sorted(scratchpad.records_accessed)[:10],
         ),
     )
