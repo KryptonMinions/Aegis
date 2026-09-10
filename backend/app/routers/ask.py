@@ -227,6 +227,7 @@ _FIXTURE_THINKING_LABELS = ["Reviewing query intent", "Looking up matching recor
 
 _THINKING_LABELS: dict[str, str] = {
     "thought": "Thinking",
+    "cache_hit": "Answered from recent results",
     "hard_refuse": "Refused",
     "llm_error": "Model error",
     "abort": "Stopped",

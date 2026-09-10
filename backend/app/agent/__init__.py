@@ -27,6 +27,8 @@ from app.supabase import SupabaseError, select_rows
 
 from . import audit as audit_writer
 from . import router
+from .answer_cache import CacheEntry, get_answer_cache, ttl_for_class
+from .cache_key import frame_key
 from .composer import compose, refusal_message
 from .loop import AgentLoop
 from .scratchpad import TurnScratchpad
@@ -74,6 +76,19 @@ async def _resolve_operator_station(user: CurrentUser, settings: Settings) -> di
 
     _station_cache[user.officer_id] = (now, result)
     return result
+
+
+def _summarize(message: AssistantMessage) -> str:
+    summary = message.text or ""
+    if not summary and message.blocks:
+        first = message.blocks[0]
+        if first.type == "text":
+            summary = first.content
+        elif first.type == "no_answer":
+            summary = first.message
+        else:
+            summary = f"{first.type} block"
+    return summary
 
 
 def _build_response(thread_id: str, message: AssistantMessage) -> AskResponse:
@@ -148,6 +163,40 @@ async def run_turn(
         if specialist.name == "intel_analyst":
             tools = intel_analyst_scoped_tools()
 
+    # R2 R-3: pre-loop semantic answer cache. Keyed on role + station so a
+    # scoped answer never crosses stations/roles. Only status=answered results
+    # are stored (checked at store time via block type).
+    cache_ttl = 0
+    cache_key: str | None = None
+    if settings.answer_cache_enabled:
+        cache_ttl = ttl_for_class(
+            frame.query_class,
+            settings.answer_cache_ttl_lookup_s,
+            settings.answer_cache_ttl_analytic_s,
+        )
+    if cache_ttl > 0:
+        cache_key = frame_key(frame, user, scoped_station_id, settings)
+        hit = get_answer_cache().get(cache_key)
+        if hit is not None:
+            scratchpad.emit_event({"type": "cache_hit", "label": "Answered from recent results"})
+            scratchpad.records_accessed = set(hit.records_accessed)
+            await get_thread_store(settings).append(
+                thread_id,
+                TurnSummary(
+                    query=frame.raw_query,
+                    specialist=hit.specialist_name or specialist.name,
+                    answer_summary=_summarize(hit.message)[:200],
+                    entity_ids=hit.records_accessed[:10],
+                ),
+            )
+            await audit_writer.write(
+                request=request, user=user, query_class=frame.query_class, message=hit.message,
+                scratchpad=scratchpad, specialist_name=hit.specialist_name, request_id=request_id,
+                thread_id=thread_id, settings=settings, cache_hit=True,
+            )
+            _log_usage(hit.specialist_name, hit.message)
+            return _build_response(thread_id, hit.message)
+
     loop = AgentLoop(settings)
     result = await loop.run(
         specialist=specialist,
@@ -163,10 +212,20 @@ async def run_turn(
 
     message = compose(result.final_answer, scratchpad, specialist)
 
-    answer_summary = message.text or ""
-    if not answer_summary and message.blocks:
-        first = message.blocks[0]
-        answer_summary = first.content if first.type == "text" else first.message if first.type == "no_answer" else f"{first.type} block"
+    answered = not (message.blocks and message.blocks[0].type == "no_answer")
+    if cache_key is not None and answered:
+        get_answer_cache().put(
+            cache_key,
+            CacheEntry(
+                message=message,
+                records_accessed=sorted(scratchpad.records_accessed),
+                query_class=frame.query_class,
+                specialist_name=specialist.name,
+                expires_at=time.time() + cache_ttl,
+            ),
+        )
+
+    answer_summary = _summarize(message)
     thread_store = get_thread_store(settings)
     await thread_store.append(
         thread_id,

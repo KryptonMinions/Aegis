@@ -97,6 +97,7 @@ async def write(
     request_id: str,
     thread_id: str,
     settings: Settings,
+    cache_hit: bool = False,
 ) -> None:
     response_reason = "answered"
     response_summary = message.text or ""
@@ -141,15 +142,16 @@ async def write(
     except SupabaseError:
         pass
 
-    trace_row = {
-        "log_id": log_id,
-        "request_id": request_id,
-        "trace": {
-            "events": scratchpad.events,
-            "usage": scratchpad.usage,
-            "components_used": components_used,
-        },
+    trace = {
+        "events": scratchpad.events,
+        "usage": scratchpad.usage,
+        "components_used": components_used,
     }
+    if cache_hit:
+        # R2 §4.4: a cache hit is still an access. records_accessed is
+        # reconstructed on the log row above; the trace marks zero tool calls.
+        trace["served_from_cache"] = True
+    trace_row = {"log_id": log_id, "request_id": request_id, "trace": trace}
     try:
         await insert_row("ask_turn_traces", trace_row, settings)
     except SupabaseError:

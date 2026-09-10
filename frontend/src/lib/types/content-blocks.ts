@@ -167,6 +167,7 @@ export interface ThinkingEvent {
   id: string;
   kind:
     | "thought"
+    | "cache_hit"
     | "tool_started"
     | "tool_finished"
     | "hard_refuse"

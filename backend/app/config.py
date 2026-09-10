@@ -38,6 +38,12 @@ class Settings(BaseSettings):
     # server-side); gates cache-token instrumentation into ask_turn_traces and
     # reserves the seam for an explicit-cache transport later.
     prompt_cache_enabled: bool = False
+    # R2_steering_docs.md R-3 pre-loop semantic answer cache. Off by default
+    # (R-5). In-process TTL cache; classes not covered by a TTL below
+    # (summary/audit/unresolved) are never cached.
+    answer_cache_enabled: bool = False
+    answer_cache_ttl_lookup_s: int = 1800
+    answer_cache_ttl_analytic_s: int = 300
     # ISO date (YYYY-MM-DD); when set, overrides "today" for relative-date
     # resolution and prompts. Align with SEED_DEMO_DATE.
     ask_reference_date: str = ""
