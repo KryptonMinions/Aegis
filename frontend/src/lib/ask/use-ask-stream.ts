@@ -1,16 +1,19 @@
 "use client";
 
-import { useCallback, useState } from "react";
+import { useCallback, useRef, useState } from "react";
 import { useAuth } from "@/lib/auth/auth-context";
 import type { ChatMessage, ThinkingEvent } from "@/lib/types/content-blocks";
 import type { AskInput } from "./ask-service";
-import { UnauthenticatedError } from "./ask-service";
+import { AskServiceError, UnauthenticatedError } from "./ask-service";
 import { streamAsk } from "./ask-stream-service";
 
 interface StreamCallbacks {
+  onOpen?: () => void;
   onThinking: (event: ThinkingEvent) => void;
   onDone: (message: ChatMessage) => void;
   onError: (error: Error) => void;
+  /** thinking_state.md §11 -- fired instead of onError when the user hit Stop. */
+  onAbort?: () => void;
 }
 
 /**
@@ -28,13 +31,19 @@ export function useAskStream() {
   const { logout } = useAuth();
   const [isStreaming, setIsStreaming] = useState(false);
   const [error, setError] = useState<Error | null>(null);
+  const controllerRef = useRef<AbortController | null>(null);
 
   const send = useCallback(
     async (input: AskInput, callbacks: StreamCallbacks) => {
+      const controller = new AbortController();
+      controllerRef.current = controller;
       setIsStreaming(true);
       setError(null);
       try {
-        for await (const evt of streamAsk(input)) {
+        for await (const evt of streamAsk(input, {
+          signal: controller.signal,
+          onOpen: callbacks.onOpen,
+        })) {
           if (evt.type === "thinking") {
             callbacks.onThinking(evt.event);
           } else {
@@ -42,6 +51,10 @@ export function useAskStream() {
           }
         }
       } catch (err) {
+        if (err instanceof AskServiceError && err.code === "aborted") {
+          callbacks.onAbort?.();
+          return;
+        }
         const asError = err instanceof Error ? err : new Error("Streaming failed");
         setError(asError);
         // Role Authority Rule / auth boundary -- same handling as use-ask.ts.
@@ -50,11 +63,16 @@ export function useAskStream() {
         }
         callbacks.onError(asError);
       } finally {
+        controllerRef.current = null;
         setIsStreaming(false);
       }
     },
     [logout],
   );
 
-  return { send, isStreaming, error };
+  const stop = useCallback(() => {
+    controllerRef.current?.abort();
+  }, []);
+
+  return { send, stop, isStreaming, error };
 }

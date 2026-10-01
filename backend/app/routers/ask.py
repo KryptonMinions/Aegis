@@ -1,5 +1,6 @@
 import asyncio
 import json
+import re
 import sys
 import time
 import uuid
@@ -240,12 +241,22 @@ def _sse(event: str, data: dict) -> bytes:
     return f"event: {event}\ndata: {json.dumps(data, default=str)}\n\n".encode()
 
 
+def _sanitize_detail(text: str, max_len: int = 120) -> str:
+    return re.sub(r"\s+", " ", text).strip()[:max_len]
+
+
 def _map_thinking_event(raw: dict[str, Any]) -> dict[str, Any]:
     """Raw scratchpad event (loop.py's `emit_event` payloads) -> the uniform
-    wire shape `{id, kind, label, detail?, status, ts, tool?}` documented in
-    ASK_STREAM_ENDPOINT_CONTRACT.md."""
+    wire shape `{id, kind, label, detail?, status, ts, tool?, phase?, call_id?,
+    row_count?, latency_ms?, agent?}` documented in ASK_STREAM_ENDPOINT_CONTRACT.md
+    and extended by thinking_state.md §2.2."""
     kind = raw.get("type", "thought")
-    label = raw.get("label") or _THINKING_LABELS.get(kind, kind)
+    if kind == "phase":
+        label = raw.get("label") or str(raw.get("phase", "phase")).replace("_", " ").capitalize()
+    elif kind == "agent_selected":
+        label = raw.get("label") or str(raw.get("agent", "agent")).replace("_", " ")
+    else:
+        label = raw.get("label") or _THINKING_LABELS.get(kind, kind)
     if kind == "tool_finished":
         status = "done" if raw.get("ok") else "error"
     elif kind in _THINKING_ERROR_KINDS:
@@ -259,12 +270,29 @@ def _map_thinking_event(raw: dict[str, Any]) -> dict[str, Any]:
         "label": label,
         "status": status,
         "ts": datetime.now(timezone.utc).isoformat(),
+        "phase": raw.get("phase"),
     }
-    detail = raw.get("text") or raw.get("reason") or raw.get("error") or raw.get("repair_error")
-    if detail:
-        mapped["detail"] = detail
-    if kind in ("tool_started", "tool_finished") and raw.get("tool"):
-        mapped["tool"] = raw["tool"]
+    # thinking_state.md §2.4: `detail` on `tool_started` is sourced from the
+    # `purpose` argument only -- never `sql`, never serialised args. Other
+    # kinds keep their existing (already-safe) sourcing untouched.
+    if kind == "tool_started":
+        purpose = raw.get("args", {}).get("purpose") if isinstance(raw.get("args"), dict) else None
+        if purpose:
+            mapped["detail"] = _sanitize_detail(str(purpose))
+    else:
+        detail = raw.get("text") or raw.get("reason") or raw.get("error") or raw.get("repair_error")
+        if detail:
+            mapped["detail"] = detail
+    if kind in ("tool_started", "tool_finished"):
+        if raw.get("tool"):
+            mapped["tool"] = raw["tool"]
+        if raw.get("call_id"):
+            mapped["call_id"] = raw["call_id"]
+    if kind == "tool_finished":
+        mapped["row_count"] = raw.get("row_count")
+        mapped["latency_ms"] = raw.get("latency_ms")
+    if kind == "agent_selected" and raw.get("agent"):
+        mapped["agent"] = raw["agent"]
     return mapped
 
 
@@ -308,6 +336,7 @@ async def _stream_fixture_turn(
                 "label": label,
                 "status": "in_progress",
                 "ts": datetime.now(timezone.utc).isoformat(),
+                "fixture": True,
             }
             if fixture_name and i == len(_FIXTURE_THINKING_LABELS) - 1:
                 event["detail"] = f"Matched {fixture_name}"

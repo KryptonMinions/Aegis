@@ -80,6 +80,9 @@ class AgentLoop:
         start = monotonic()
         consecutive_failures: dict[str, int] = {}
 
+        if self._settings.ask_stream_phase_events:
+            scratchpad.emit_event({"type": "phase", "phase": "working"})
+
         for _ in range(specialist.max_iterations):
             if monotonic() - start > self._settings.ask_max_turn_seconds:
                 return self._abort(scratchpad, specialist, "wall_clock_exceeded")
@@ -102,6 +105,8 @@ class AgentLoop:
                     scratchpad.emit_event({"type": "thought", "text": thought[:240]})
 
             if not response.tool_calls:
+                if self._settings.ask_stream_phase_events:
+                    scratchpad.emit_event({"type": "phase", "phase": "composing"})
                 final = await self._parse_with_repair(response.content, messages, specialist, scratchpad)
                 if final is not None:
                     return LoopResult(final_answer=final)
@@ -126,8 +131,11 @@ class AgentLoop:
                 label = tool.label if tool else call.name
                 scratchpad.emit_event({
                     "type": "tool_started", "tool": call.name, "label": label, "args": call.arguments,
+                    "call_id": call_id,
                 })
+                t0 = monotonic()
                 result_payload = await self._execute_tool(tool, call, ctx)
+                latency_ms = int((monotonic() - t0) * 1000)
                 hard_refuse = result_payload.pop("_hard_refuse", None)
                 if hard_refuse:
                     scratchpad.emit_event({
@@ -142,7 +150,8 @@ class AgentLoop:
                 summary = json.dumps(result_payload, default=str)
                 scratchpad.emit_event({
                     "type": "tool_finished", "tool": call.name, "label": label, "ok": result_payload["ok"],
-                    "result_summary": summary[:2000],
+                    "result_summary": summary[:2000], "call_id": call_id,
+                    "row_count": _row_count(result_payload), "latency_ms": latency_ms,
                 })
 
                 if result_payload["ok"]:
@@ -165,23 +174,28 @@ class AgentLoop:
         assignment stays deterministic regardless of completion order. Results
         are then processed in call order — one sibling's failure/refuse never
         aborts the others mid-flight, but the turn still stops once collected."""
-        for call, _ in pairs:
+        for call, call_id in pairs:
             tool = tool_by_name.get(call.name)
             scratchpad.emit_event({
                 "type": "tool_started", "tool": call.name,
                 "label": tool.label if tool else call.name, "args": call.arguments,
+                "call_id": call_id,
             })
 
         sem = asyncio.Semaphore(self._settings.parallel_tools_max)
         children: dict[int, TurnScratchpad] = {}
+        latencies: dict[int, int] = {}
 
         async def _run_child(idx: int, call) -> dict:
             async with sem:
                 child = TurnScratchpad()
                 children[idx] = child
-                return await self._execute_tool(
+                t0 = monotonic()
+                result = await self._execute_tool(
                     tool_by_name.get(call.name), call, replace(ctx, scratchpad=child)
                 )
+                latencies[idx] = int((monotonic() - t0) * 1000)
+                return result
 
         results: list[dict] = [{} for _ in pairs]
         tasks = {
@@ -191,7 +205,9 @@ class AgentLoop:
         }
         for idx, (call, _) in enumerate(pairs):
             if idx not in tasks:  # run_sql — serialized, on the real scratchpad, in call order
+                t0 = monotonic()
                 results[idx] = await self._execute_tool(tool_by_name.get(call.name), call, ctx)
+                latencies[idx] = int((monotonic() - t0) * 1000)
         for idx, task in tasks.items():
             results[idx] = await task
 
@@ -215,7 +231,8 @@ class AgentLoop:
             scratchpad.emit_event({
                 "type": "tool_finished", "tool": call.name,
                 "label": tool.label if tool else call.name, "ok": result_payload["ok"],
-                "result_summary": summary[:2000],
+                "result_summary": summary[:2000], "call_id": call_id,
+                "row_count": _row_count(result_payload), "latency_ms": latencies.get(idx),
             })
 
             if result_payload["ok"]:
@@ -446,6 +463,13 @@ def _truncate(payload: dict) -> dict:
         inner = {**inner, "rows": kept, "truncated": True}
         data["data"] = inner
     return data
+
+
+def _row_count(result_payload: dict) -> int | None:
+    data = result_payload.get("data")
+    if isinstance(data, dict) and isinstance(data.get("rows"), list):
+        return len(data["rows"])
+    return None
 
 
 def _try_json(content: str) -> dict | None:

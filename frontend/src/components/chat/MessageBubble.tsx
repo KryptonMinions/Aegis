@@ -3,8 +3,18 @@ import { cn } from "@/lib/utils";
 import { BlockRenderer } from "./BlockRenderer";
 import { ThinkingPanel } from "./ThinkingPanel";
 
-export function MessageBubble({ message }: { message: ChatMessage }) {
+interface MessageBubbleProps {
+  message: ChatMessage;
+  onStop?: () => void;
+  onRetry?: () => void;
+}
+
+export function MessageBubble({ message, onStop, onRetry }: MessageBubbleProps) {
   const isUser = message.role === "user";
+  // thinking_state.md T-4/AC-1: paint the panel before the first thinking
+  // row arrives, not just once rows exist.
+  const showThinking =
+    !isUser && ((message.thinking && message.thinking.length > 0) || (message.isStreaming && message.status !== "done"));
 
   return (
     <div className={cn("flex", isUser ? "justify-end" : "justify-start")}>
@@ -19,8 +29,19 @@ export function MessageBubble({ message }: { message: ChatMessage }) {
         {isUser && message.text && <p>{message.text}</p>}
         {!isUser && (
           <div className="space-y-3">
-            {message.thinking && message.thinking.length > 0 && (
-              <ThinkingPanel thinking={message.thinking} isStreaming={message.isStreaming} />
+            {showThinking && (
+              <ThinkingPanel
+                thinking={message.thinking}
+                isStreaming={message.isStreaming}
+                status={message.status}
+                startedAt={message.startedAt}
+                endedAt={message.endedAt}
+                currentPhase={message.currentPhase}
+                currentAgent={message.currentAgent}
+                onStop={onStop}
+                onRetry={onRetry}
+                errorMessage={message.errorMessage}
+              />
             )}
             {message.text && <p className="text-sm">{message.text}</p>}
             {message.blocks?.map((block) => (

@@ -49,6 +49,9 @@ class Settings(BaseSettings):
     # default (R-5); flag off = byte-identical sequential execution.
     parallel_tools_enabled: bool = False
     parallel_tools_max: int = 4
+    # thinking_state.md §2.5. Off by default; when false, `phase`/`agent_selected`
+    # thinking events are never emitted and existing behavior is unchanged.
+    ask_stream_phase_events: bool = False
     # ISO date (YYYY-MM-DD); when set, overrides "today" for relative-date
     # resolution and prompts. Align with SEED_DEMO_DATE.
     ask_reference_date: str = ""

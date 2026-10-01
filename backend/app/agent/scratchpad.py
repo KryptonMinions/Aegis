@@ -59,6 +59,10 @@ class TurnScratchpad:
     on_event: Callable[[dict[str, Any]], None] | None = None
     _payload_seq: int = 0
     _provenance_seq: int = 0
+    # thinking_state.md §2.2/§2.3 — the turn's current phase, set by `phase`
+    # events and stamped onto every subsequent event via emit_event() below,
+    # so a client joining mid-stream can render correct state.
+    current_phase: str | None = None
 
     def register_payload(self, block: Any) -> str:
         """Validate `block` against the ContentBlock union (wire shape final at
@@ -106,6 +110,9 @@ class TurnScratchpad:
         self.tools_used.append(tool_name)
 
     def emit_event(self, event: dict[str, Any]) -> None:
+        if event.get("type") == "phase":
+            self.current_phase = event.get("phase")
+        event.setdefault("phase", self.current_phase)
         self.events.append(event)
         if self.on_event is not None:
             self.on_event(event)

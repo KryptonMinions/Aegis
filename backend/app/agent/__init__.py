@@ -125,6 +125,8 @@ async def run_turn(
     turn_start = time.monotonic()
     thread_id = request.thread_id or str(uuid.uuid4())
     scratchpad = TurnScratchpad(on_event=on_event)
+    if settings.ask_stream_phase_events:
+        scratchpad.emit_event({"type": "phase", "phase": "understanding"})
     frame = await build_frame(request, user, settings, on_usage=scratchpad.add_usage)
 
     def _log_usage(specialist_name: str | None, message: AssistantMessage) -> None:
@@ -153,7 +155,11 @@ async def run_turn(
         _log_usage(None, message)
         return _build_response(thread_id, message)
 
+    if settings.ask_stream_phase_events:
+        scratchpad.emit_event({"type": "phase", "phase": "routing"})
     specialist: SpecialistConfig = router.select(frame.query_class)
+    if settings.ask_stream_phase_events:
+        scratchpad.emit_event({"type": "agent_selected", "agent": specialist.name})
 
     jurisdiction_note: str | None = None
     scoped_station_id: str | None = None

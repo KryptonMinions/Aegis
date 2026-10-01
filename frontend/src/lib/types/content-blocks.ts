@@ -173,12 +173,23 @@ export interface ThinkingEvent {
     | "hard_refuse"
     | "llm_error"
     | "abort"
-    | "final_answer_parse_failed";
+    | "final_answer_parse_failed"
+    | "phase"
+    | "agent_selected";
   label: string;
   detail?: string;
   status: "in_progress" | "done" | "error";
   ts: string;
   tool?: string;
+  /** thinking_state.md §2.2 additions -- all optional/additive, absence must
+   * not break parsing. */
+  call_id?: string | null;
+  phase?: "understanding" | "routing" | "working" | "composing" | null;
+  row_count?: number | null;
+  latency_ms?: number | null;
+  agent?: string;
+  /** thinking_state.md §9 -- marks events from ASK_ENGINE=fixture turns. */
+  fixture?: boolean;
 }
 
 export interface ChatMessage {
@@ -199,4 +210,12 @@ export interface ChatMessage {
   /** True from the moment a placeholder assistant message is appended until
    * its terminal `message`/`error` SSE event arrives (ChatThread.tsx). */
   isStreaming?: boolean;
+  /** thinking_state.md §3 waiting-state machine -- undefined for user
+   * messages and any message not sent via the streaming path. */
+  status?: "submitting" | "waiting" | "streaming" | "composing" | "done" | "error" | "aborted";
+  startedAt?: number;
+  endedAt?: number | null;
+  currentPhase?: "understanding" | "routing" | "working" | "composing" | null;
+  currentAgent?: string | null;
+  errorMessage?: string;
 }

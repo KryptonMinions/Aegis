@@ -21,7 +21,18 @@ export type StreamEvent =
  * (matching RealAskService's error mapping) on a pre-flight failure or a
  * mid-stream `error` SSE event.
  */
-export async function* streamAsk(input: AskInput): AsyncGenerator<StreamEvent, void, void> {
+export interface StreamAskOptions {
+  /** Aborts the underlying fetch (thinking_state.md §11 Stop control). */
+  signal?: AbortSignal;
+  /** Fires once the response headers land (HTTP 200 committed), before any
+   * `thinking` frame has arrived -- the `submitting` -> `waiting` boundary. */
+  onOpen?: () => void;
+}
+
+export async function* streamAsk(
+  input: AskInput,
+  options: StreamAskOptions = {},
+): AsyncGenerator<StreamEvent, void, void> {
   const apiUrl = process.env.NEXT_PUBLIC_API_URL;
   if (!apiUrl) {
     throw new Error("NEXT_PUBLIC_API_URL is required for streaming");
@@ -40,10 +51,16 @@ export async function* streamAsk(input: AskInput): AsyncGenerator<StreamEvent, v
         Authorization: `Bearer ${accessToken}`,
       },
       body: JSON.stringify(buildAskRequestBody(input)),
+      signal: options.signal,
     });
   } catch (err) {
+    if ((err as Error).name === "AbortError") {
+      throw new AskServiceError("aborted", "Request was stopped.");
+    }
     throw new AskServiceError("network_error", (err as Error).message);
   }
+
+  options.onOpen?.();
 
   if (!res.ok) {
     // Pre-flight failure (401/422/etc.) -- the stream never opened, this is

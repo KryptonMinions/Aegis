@@ -179,4 +179,37 @@
   .tabular-nums {
     font-variant-numeric: tabular-nums;
   }
+
+  /* thinking_state.md §5 — headline-only luminance sweep, never a color
+     effect (base -> foreground -> base). Decorative: carries no information,
+     so prefers-reduced-motion removes it entirely with nothing lost. */
+  .thinking-headline-shimmer {
+    background-image: linear-gradient(
+      90deg,
+      var(--color-muted-foreground) 0%,
+      var(--color-foreground) 50%,
+      var(--color-muted-foreground) 100%
+    );
+    background-size: 200% 100%;
+    background-clip: text;
+    color: transparent;
+    animation: thinking-shimmer 1.6s linear infinite;
+  }
+
+  @keyframes thinking-shimmer {
+    from {
+      background-position: 200% 0;
+    }
+    to {
+      background-position: -200% 0;
+    }
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .thinking-headline-shimmer {
+      animation: none;
+      background-image: none;
+      color: var(--color-muted-foreground);
+    }
+  }
 }
