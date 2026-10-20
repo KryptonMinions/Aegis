@@ -124,7 +124,7 @@ export function QueryInput({
                 />
               ) : (
                 <Image
-                  src="/voice-svgrepo-com.svg"
+                  src="/app/voice-svgrepo-com.svg"
                   alt=""
                   width={20}
                   height={20}
