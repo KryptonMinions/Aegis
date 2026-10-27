@@ -43,15 +43,6 @@ References/            Datathon challenge brief PDFs (data discovery, demo
                        design).
 ```
 
-**Deployment config**
-
-```
-client/                Unused default Catalyst client scaffold, superseded by
-                       frontend/out (the actual deployed static export).
-catalyst.json,         Zoho Catalyst deployment config (see Deployment
-.catalystrc            below).
-```
-
 ## Running locally
 
 ### 1. Backend (FastAPI)
@@ -113,25 +104,6 @@ golden demo threads, Kannada translations, and embeddings). See
 
 ## Deployment
 
-The app is hosted entirely on [Zoho Catalyst](https://www.catalyst.zoho.com/),
-Zoho's serverless application platform, across three of its services:
-
-- **AppSail** — runs the `backend` and `embeddings-service` as separate
-  Docker containers. `catalyst.json` declares the AppSail entry for the
-  backend; `backend/Dockerfile` and `embeddings-service/Dockerfile` both bind
-  to the port Catalyst injects via `X_ZOHO_CATALYST_LISTEN_PORT` (falling
-  back to 8080 for local `docker run`).
-- **Client** — serves the frontend's Next.js static export (`frontend/out`)
-  as a static site; also declared in `catalyst.json`.
-- **Cache / Stratus / QuickML** — supporting Catalyst services used at
-  runtime by the backend (response caching, object storage, and the
-  in-platform LLM used for intent classification respectively); configured
-  via env vars, not declared in `catalyst.json`.
-
-Production env vars (Supabase, LLM profiles, Catalyst OAuth/cache/Stratus
-settings) are configured per-environment in Catalyst, not committed to the
-repo — `backend/app-config.json` (gitignored) holds the local copy used for
-deploys. Deployed URLs are intentionally not listed here; ask a maintainer
-for the current environment link.
-
-
+Migrating from Zoho Catalyst to Google Cloud (Cloud Run, Firebase Hosting,
+Firestore, Vertex AI, all in `asia-south1`). There is no automated deploy
+until the GCP pipelines land; see `GCP_MIGRATION_PLAN.md`.
