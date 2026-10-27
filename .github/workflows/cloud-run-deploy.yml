@@ -1,0 +1,100 @@
+name: Cloud Run deploy (reusable)
+
+# Build a service's image, push it to Artifact Registry and deploy it to Cloud
+# Run. Called by deploy-backend / deploy-embeddings / deploy-pdf-service.
+#
+# Repo *variables* (Settings > Secrets and variables > Actions > Variables):
+#   GCP_PROJECT_ID, GCP_REGION (e.g. asia-south1), GCP_AR_REPO,
+#   GCP_WIF_PROVIDER (projects/N/locations/global/workloadIdentityPools/P/providers/X),
+#   GCP_DEPLOY_SA (deploy service account email), GCP_RUNTIME_SA (Cloud Run runtime SA).
+# Runtime secrets live in Secret Manager, not in GitHub.
+
+on:
+  workflow_call:
+    inputs:
+      service:
+        description: Cloud Run service name, also the Artifact Registry image name
+        required: true
+        type: string
+      context:
+        description: Directory containing the Dockerfile
+        required: true
+        type: string
+      memory:
+        type: string
+        default: 512Mi
+      cpu:
+        type: string
+        default: '1'
+      min_instances:
+        type: string
+        default: '0'
+      env_vars:
+        description: "Env vars as ^@^KEY=value@KEY2=value2 (custom delimiter so values may contain commas)"
+        type: string
+        default: ''
+      secrets:
+        description: "Secret Manager mappings: ENV_NAME=secret-name:latest,..."
+        type: string
+        default: ''
+
+permissions:
+  contents: read
+  id-token: write
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      # Workload Identity Federation: no long-lived JSON key.
+      - uses: google-github-actions/auth@v2
+        with:
+          workload_identity_provider: ${{ vars.GCP_WIF_PROVIDER }}
+          service_account: ${{ vars.GCP_DEPLOY_SA }}
+
+      - uses: google-github-actions/setup-gcloud@v2
+
+      - name: Configure Docker for Artifact Registry
+        run: gcloud auth configure-docker "${{ vars.GCP_REGION }}-docker.pkg.dev" --quiet
+
+      - name: Build and push image (linux/amd64)
+        run: |
+          IMAGE="${{ vars.GCP_REGION }}-docker.pkg.dev/${{ vars.GCP_PROJECT_ID }}/${{ vars.GCP_AR_REPO }}/${{ inputs.service }}:${{ github.sha }}"
+          docker build --platform linux/amd64 -t "$IMAGE" "${{ inputs.context }}"
+          docker push "$IMAGE"
+          echo "IMAGE=$IMAGE" >> "$GITHUB_ENV"
+
+      # Services authenticate callers with their own bearer API keys (see
+      # EMBEDDINGS_API_KEY / PDF_SERVICE_API_KEY), so they are deployed
+      # publicly reachable. Switch to --no-allow-unauthenticated plus an
+      # identity token if you want IAM-only access.
+      - name: Deploy to Cloud Run
+        env:
+          SERVICE: ${{ inputs.service }}
+          MEMORY: ${{ inputs.memory }}
+          CPU: ${{ inputs.cpu }}
+          MIN_INSTANCES: ${{ inputs.min_instances }}
+          ENV_VARS: ${{ inputs.env_vars }}
+          SECRETS: ${{ inputs.secrets }}
+        run: |
+          # Multi-line inputs are written one entry per line for readability;
+          # strip the whitespace so gcloud sees a single delimited string.
+          ENV_VARS=$(printf '%s' "$ENV_VARS" | tr -d ' \n')
+          SECRETS=$(printf '%s' "$SECRETS" | tr -d ' \n')
+          ARGS=(
+            --project "${{ vars.GCP_PROJECT_ID }}"
+            --region "${{ vars.GCP_REGION }}"
+            --image "$IMAGE"
+            --service-account "${{ vars.GCP_RUNTIME_SA }}"
+            --memory "$MEMORY"
+            --cpu "$CPU"
+            --min-instances "$MIN_INSTANCES"
+            --cpu-boost
+            --timeout 300
+            --allow-unauthenticated
+          )
+          if [ -n "$ENV_VARS" ]; then ARGS+=(--set-env-vars "$ENV_VARS"); fi
+          if [ -n "$SECRETS" ]; then ARGS+=(--set-secrets "$SECRETS"); fi
+          gcloud run deploy "$SERVICE" "${ARGS[@]}"

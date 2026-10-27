@@ -1,0 +1,70 @@
+name: Deploy Backend to Cloud Run
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'backend/**'
+      - '.github/workflows/deploy-backend.yml'
+      - '.github/workflows/cloud-run-deploy.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  id-token: write
+
+jobs:
+  lint:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: backend
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+          cache: 'pip'
+          cache-dependency-path: backend/requirements.txt
+
+      - run: pip install -r requirements.txt
+
+      # Basic import check — catches broken imports before deploy. Dummy
+      # values satisfy the required Settings fields (app.config); real
+      # secrets live in Secret Manager, not CI.
+      - run: python -c "from app.main import app; print('Import OK')"
+        env:
+          SUPABASE_URL: https://ci.invalid
+          SUPABASE_PUBLISHABLE_KEY: ci-dummy
+          SUPABASE_SECRET_KEY: ci-dummy
+
+  deploy:
+    needs: lint
+    uses: ./.github/workflows/cloud-run-deploy.yml
+    with:
+      service: ksp-backend
+      context: backend
+      memory: 1Gi
+      min_instances: '1'
+      # Settings not listed here use their defaults from app/config.py.
+      env_vars: |-
+        ^@^THREAD_STORE_BACKEND=firestore
+        @PDF_EXPORT_ENABLED=true
+        @GCP_PROJECT_ID=${{ vars.GCP_PROJECT_ID }}
+        @FRONTEND_ORIGIN=${{ vars.FRONTEND_ORIGIN }}
+        @EMBEDDINGS_BASE_URL=${{ vars.EMBEDDINGS_BASE_URL }}
+        @PDF_SERVICE_BASE_URL=${{ vars.PDF_SERVICE_BASE_URL }}
+        @LLM_PROFILE_FAST_BASE_URL=${{ vars.LLM_PROFILE_FAST_BASE_URL }}
+        @LLM_PROFILE_FAST_MODEL=${{ vars.LLM_PROFILE_FAST_MODEL }}
+        @LLM_PROFILE_SMART_BASE_URL=${{ vars.LLM_PROFILE_SMART_BASE_URL }}
+        @LLM_PROFILE_SMART_MODEL=${{ vars.LLM_PROFILE_SMART_MODEL }}
+      secrets: |-
+        SUPABASE_URL=SUPABASE_URL:latest,
+        SUPABASE_PUBLISHABLE_KEY=SUPABASE_PUBLISHABLE_KEY:latest,
+        SUPABASE_SECRET_KEY=SUPABASE_SECRET_KEY:latest,
+        SARVAM_API_KEY=SARVAM_API_KEY:latest,
+        LLM_PROFILE_FAST_API_KEY=LLM_PROFILE_FAST_API_KEY:latest,
+        LLM_PROFILE_SMART_API_KEY=LLM_PROFILE_SMART_API_KEY:latest,
+        EMBEDDINGS_API_KEY=EMBEDDINGS_API_KEY:latest,
+        PDF_SERVICE_API_KEY=PDF_SERVICE_API_KEY:latest
