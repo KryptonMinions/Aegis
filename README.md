@@ -146,8 +146,8 @@ Everything runs on Google Cloud in `asia-south1` (Mumbai), apart from Supabase
 
 | Component | Runs on | Deployed by |
 |---|---|---|
-| `backend` | Cloud Run (`ksp-backend`, min 1 instance) | `.github/workflows/deploy-backend.yml` |
-| `embeddings-service` | Cloud Run (`ksp-embeddings`, 4 GiB, model baked into the image) | `deploy-embeddings.yml` |
+| `backend` | Cloud Run (`ksp-backend`, scales to zero) | `.github/workflows/deploy-backend.yml` |
+| `embeddings-service` | Cloud Run (`ksp-embeddings`, 4 GiB, scales to zero, model baked into the image) | `deploy-embeddings.yml` |
 | `pdf-service` | Cloud Run (`ksp-pdf`, scales to zero) | `deploy-pdf-service.yml` |
 | `frontend` (static export) | Firebase Hosting | `deploy-frontend.yml` |
 | Chat thread memory | Firestore (`ask_threads`, TTL on `expires_at`) | created once, see the runbook |

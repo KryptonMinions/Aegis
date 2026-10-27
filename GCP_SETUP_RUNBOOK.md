@@ -20,8 +20,11 @@ gcloud config set project "$PROJECT_ID"
 export PROJECT_NUMBER=$(gcloud projects describe "$PROJECT_ID" --format='value(projectNumber)')
 ```
 
-Set a **budget alert** now (Console > Billing > Budgets & alerts). Two
-always-warm Cloud Run instances are the main fixed cost, roughly $15–40/month.
+Set a **budget alert** now (Console > Billing > Budgets & alerts). Every Cloud
+Run service scales to zero, so there is no fixed compute cost while idle; the
+first request after a quiet period waits for a cold start (the embeddings
+service is the slowest, around 20-30 s). Cost is per request, capped by
+`max_instances` and the per-IP rate limits.
 
 ## 2. Enable APIs
 

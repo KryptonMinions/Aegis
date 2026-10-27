@@ -22,6 +22,7 @@ os.environ.update({
     "SUPABASE_PUBLISHABLE_KEY": "ci-dummy",
     "SUPABASE_SECRET_KEY": "ci-dummy",
     "THREAD_STORE_BACKEND": "memory",
+    "PASSWORDLESS_LOGIN_ENABLED": "false",  # pinned: a developer .env may enable it
     "ASK_RATE_LIMIT_PER_MINUTE": "3",
     "ASK_RATE_LIMIT_PER_HOUR": "0",
     "LOGIN_RATE_LIMIT_PER_MINUTE": "2",

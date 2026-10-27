@@ -46,12 +46,14 @@ jobs:
       service: ksp-backend
       context: backend
       memory: 1Gi
-      min_instances: '1'
+      # Scale to zero: cold starts are fine for this app, and it costs nothing idle.
+      min_instances: '0'
       # Settings not listed here use their defaults from app/config.py.
       env_vars: |-
         ^@^THREAD_STORE_BACKEND=firestore
         @PDF_EXPORT_ENABLED=true
         @PASSWORDLESS_LOGIN_ENABLED=true
+        @ASK_MAX_TURN_SECONDS=60
         @GCP_PROJECT_ID=${{ vars.GCP_PROJECT_ID }}
         @FRONTEND_ORIGIN=${{ vars.FRONTEND_ORIGIN }}
         @EMBEDDINGS_BASE_URL=${{ vars.EMBEDDINGS_BASE_URL }}
