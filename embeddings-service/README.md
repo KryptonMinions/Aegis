@@ -12,6 +12,9 @@ the backend stays free of the torch/transformers dependency (matches its own
 and this service can scale/redeploy independently. Deploy target: Cloud
 Run (private), alongside the main backend.
 
+The Docker image bakes the model weights in at build time, so a cold start loads
+them from disk instead of downloading from Hugging Face.
+
 ## Run locally
 
 ```

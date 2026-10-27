@@ -125,6 +125,23 @@ embeddings service.
 
 ## Deployment
 
-Migrating from Zoho Catalyst to Google Cloud (Cloud Run, Firebase Hosting,
-Firestore, Vertex AI, all in `asia-south1`). There is no automated deploy
-until the GCP pipelines land; see `GCP_MIGRATION_PLAN.md`.
+Everything runs on Google Cloud in `asia-south1` (Mumbai), apart from Supabase
+(Postgres/Auth), Sarvam (speech-to-text) and the Gemini API, which are external.
+
+| Component | Runs on | Deployed by |
+|---|---|---|
+| `backend` | Cloud Run (`ksp-backend`, min 1 instance) | `.github/workflows/deploy-backend.yml` |
+| `embeddings-service` | Cloud Run (`ksp-embeddings`, 4 GiB, model baked into the image) | `deploy-embeddings.yml` |
+| `pdf-service` | Cloud Run (`ksp-pdf`, scales to zero) | `deploy-pdf-service.yml` |
+| `frontend` (static export) | Firebase Hosting | `deploy-frontend.yml` |
+| Chat thread memory | Firestore (`ask_threads`, TTL on `expires_at`) | created once, see the runbook |
+| Secrets | Secret Manager, mounted as Cloud Run env vars | created once, see the runbook |
+
+The three Cloud Run workflows share `cloud-run-deploy.yml`. GitHub Actions
+authenticates to GCP with Workload Identity Federation, so there are no
+long-lived keys in the repo. Settings come from GitHub repo variables and
+Secret Manager, not from committed files.
+
+One-time project setup (APIs, service accounts, Workload Identity Federation,
+secrets, Firestore TTL, Firebase, first deploy order and smoke tests) is in
+[GCP_SETUP_RUNBOOK.md](GCP_SETUP_RUNBOOK.md).
