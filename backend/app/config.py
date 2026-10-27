@@ -24,6 +24,17 @@ class Settings(BaseSettings):
     sarvam_api_key: str = ""
     voice_intake_enabled: bool = True
 
+    # Demo mode: POST /auth/demo-login signs in as the seeded demo user for a
+    # role with no password. Anyone who can reach the API can pick any role, so
+    # enable it only where all the data is synthetic.
+    passwordless_login_enabled: bool = False
+
+    # Per-client-IP rate limits (0 disables a limit). Counters are
+    # per-instance, so the effective cap is x Cloud Run instances.
+    ask_rate_limit_per_minute: int = 10
+    ask_rate_limit_per_hour: int = 100
+    login_rate_limit_per_minute: int = 20
+
     # --- Orchestrator / agent engine (ORCHESTRATOR_STEERING.md §2.1) -------
     # fixture = current dispatch shell; agent = the tool-calling orchestrator.
     ask_engine: Literal["fixture", "agent"] = "fixture"

@@ -19,7 +19,7 @@ export function useAsk() {
       // final `return false` below since neither is an AskServiceError with
       // a retryable status).
       if (error instanceof AskServiceError) {
-        if (error.status === 429) return false; // reserved, not emitted yet
+        if (error.status === 429) return false; // rate_limited: retrying would only extend the wait
         return failureCount < 2; // network / 500 / 503
       }
       return false;

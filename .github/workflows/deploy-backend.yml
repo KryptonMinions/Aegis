@@ -51,6 +51,7 @@ jobs:
       env_vars: |-
         ^@^THREAD_STORE_BACKEND=firestore
         @PDF_EXPORT_ENABLED=true
+        @PASSWORDLESS_LOGIN_ENABLED=true
         @GCP_PROJECT_ID=${{ vars.GCP_PROJECT_ID }}
         @FRONTEND_ORIGIN=${{ vars.FRONTEND_ORIGIN }}
         @EMBEDDINGS_BASE_URL=${{ vars.EMBEDDINGS_BASE_URL }}

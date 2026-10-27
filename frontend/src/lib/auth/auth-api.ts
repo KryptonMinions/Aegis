@@ -13,23 +13,20 @@ interface LoginResponse {
 }
 
 /**
- * Backend-mediated login (steering-docs/AUTH_ARCHITECTURE_5.md - Login
- * Identifier). The client sends username+password only; it never sees or
- * constructs the synthetic email FastAPI resolves server-side.
+ * Passwordless demo sign-in: the backend signs in as the seeded demo user for
+ * `role`. The role the app trusts is still the one in the response's
+ * server-verified JWT, not the one requested here.
  */
-export async function login(
-  username: string,
-  password: string
-): Promise<LoginResponse> {
-  const res = await fetch(`${API_URL}/auth/login`, {
+export async function demoLogin(role: Role): Promise<LoginResponse> {
+  const res = await fetch(`${API_URL}/auth/demo-login`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ username, password }),
+    body: JSON.stringify({ role }),
   });
 
   if (!res.ok) {
     const body = await res.json().catch(() => null);
-    throw new AuthApiError(body?.detail ?? "Invalid username or password");
+    throw new AuthApiError(body?.detail ?? "Sign-in failed. Try again.");
   }
 
   return res.json();

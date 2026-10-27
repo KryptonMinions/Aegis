@@ -104,6 +104,22 @@ golden demo threads, Kannada translations, and embeddings). See
 `db/README.md` for the migration list and full seeding order, and
 `dataset/README.md` for what raw source data feeds into it.
 
+## Demo access and rate limiting
+
+There are no passwords: the login page shows four role tiles (Investigating
+Officer, Supervisor, Crime Analyst, Admin). Clicking one calls
+`POST /auth/demo-login`, which signs in the seeded Supabase demo user for that
+role and returns a normal Supabase JWT, so role gating, the audit log and RLS
+work exactly as before. Enable it with `PASSWORDLESS_LOGIN_ENABLED=true`; it is
+off by default, and because anyone can pick any role it should only run where
+all data is synthetic.
+
+`/ask`, `/ask/stream` and `/auth/demo-login` are rate limited per client IP
+(`ASK_RATE_LIMIT_PER_MINUTE`, `ASK_RATE_LIMIT_PER_HOUR`,
+`LOGIN_RATE_LIMIT_PER_MINUTE`; 0 disables), returning 429 with `Retry-After`.
+Counters are per Cloud Run instance, so the deploy workflow also caps
+`--max-instances`.
+
 ## PDF service
 
 `/export/pdf` turns a chat session into a PDF. The backend builds the HTML

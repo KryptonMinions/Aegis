@@ -123,6 +123,30 @@ async def sign_in_with_password(email: str, password: str, settings: Settings) -
     return resp.json()
 
 
+async def passwordless_session(email: str, settings: Settings) -> dict:
+    """Mint a real Supabase session for `email` without a password: the admin
+    API issues a one-time magic-link token (no email is sent), which is then
+    redeemed for a session. The result is the same shape as
+    `sign_in_with_password`, so every downstream JWT check is unchanged.
+    """
+    async with httpx.AsyncClient(base_url=settings.supabase_url, timeout=15) as client:
+        link = await client.post(
+            "/auth/v1/admin/generate_link",
+            json={"type": "magiclink", "email": email},
+            headers=_secret_headers(settings),
+        )
+        if link.status_code != 200:
+            raise SupabaseError(f"generate_link failed: {link.status_code} {link.text}")
+        verify = await client.post(
+            "/auth/v1/verify",
+            json={"type": "magiclink", "token_hash": link.json()["hashed_token"]},
+            headers={"apikey": settings.supabase_publishable_key},
+        )
+    if verify.status_code != 200:
+        raise SupabaseError(f"session exchange failed: {verify.status_code} {verify.text}")
+    return verify.json()
+
+
 async def admin_create_user(
     username: str,
     password: str,

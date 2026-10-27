@@ -150,7 +150,15 @@ The backend needs the other two services' URLs, so deploy those first.
 - `curl <url>/healthz` for the backend, embeddings and pdf services.
 - Embeddings output must be 768-dim (matches the seeded `multilingual-e5-base`
   vectors).
-- Log in for each demo role, then `/ask` with streaming.
+- Click each of the four role tiles on the login page: each should sign in
+  with no password (this needs `PASSWORDLESS_LOGIN_ENABLED=true`, which the
+  backend workflow sets, and the four seeded demo users in Supabase). Then
+  `/ask` with streaming.
+- Rate limit: send more than 10 `/ask` requests within a minute from one
+  machine; the 11th should return 429 `rate_limited` with a `Retry-After`
+  header. Limits are `ASK_RATE_LIMIT_PER_MINUTE`/`_PER_HOUR` (defaults 10 and
+  100) and are per Cloud Run instance, so the real cap is multiplied by
+  `max_instances` (default 3).
 - Two-turn conversation on one thread: the second answer should use context from
   the first, proving the Firestore store works. Check an `ask_threads` document
   exists with `expires_at` set.

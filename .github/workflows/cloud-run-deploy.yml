@@ -29,6 +29,10 @@ on:
       min_instances:
         type: string
         default: '0'
+      max_instances:
+        description: Hard cap on instances (also bounds cost; rate-limit counters are per instance)
+        type: string
+        default: '3'
       env_vars:
         description: "Env vars as ^@^KEY=value@KEY2=value2 (custom delimiter so values may contain commas)"
         type: string
@@ -76,6 +80,7 @@ jobs:
           MEMORY: ${{ inputs.memory }}
           CPU: ${{ inputs.cpu }}
           MIN_INSTANCES: ${{ inputs.min_instances }}
+          MAX_INSTANCES: ${{ inputs.max_instances }}
           ENV_VARS: ${{ inputs.env_vars }}
           SECRETS: ${{ inputs.secrets }}
         run: |
@@ -91,6 +96,7 @@ jobs:
             --memory "$MEMORY"
             --cpu "$CPU"
             --min-instances "$MIN_INSTANCES"
+            --max-instances "$MAX_INSTANCES"
             --cpu-boost
             --timeout 300
             --allow-unauthenticated

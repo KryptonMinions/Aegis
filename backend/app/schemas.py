@@ -10,6 +10,10 @@ class LoginRequest(BaseModel):
     password: str
 
 
+class DemoLoginRequest(BaseModel):
+    role: Role
+
+
 class SessionUser(BaseModel):
     id: str
     role: Role
