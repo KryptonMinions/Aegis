@@ -9,3 +9,4 @@ httpx
 sarvamai
 sqlglot
 markdown
+google-cloud-firestore

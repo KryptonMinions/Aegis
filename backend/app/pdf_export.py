@@ -1,4 +1,4 @@
-"""Session -> printable HTML (app/routers/export.py -> SmartBrowz).
+"""Session -> printable HTML (app/routers/export.py -> pdf-service).
 
 Renders a full chat session (turns + all content-block types + citations) as
 clean HTML for PDF conversion. Interactive blocks (network_graph, map) get a
@@ -10,8 +10,10 @@ from __future__ import annotations
 import html as html_lib
 from datetime import datetime, timezone
 
+import httpx
 import markdown as md
 
+from app.config import Settings
 from app.schemas import (
     CaseCardBlock,
     Citation,
@@ -233,3 +235,16 @@ def render_session_html(
   {"".join(turn_html)}
 </body>
 </html>"""
+
+
+async def html_to_pdf(html: str, settings: Settings) -> bytes:
+    """POST the HTML to the Chromium pdf-service and return the PDF bytes."""
+    headers = {"Authorization": f"Bearer {settings.pdf_service_api_key}"} if settings.pdf_service_api_key else {}
+    async with httpx.AsyncClient(timeout=60) as client:
+        resp = await client.post(
+            f"{settings.pdf_service_base_url.rstrip('/')}/pdf", json={"html": html}, headers=headers
+        )
+    resp.raise_for_status()
+    if not resp.content.startswith(b"%PDF-"):
+        raise ValueError("pdf-service returned a non-PDF body")
+    return resp.content

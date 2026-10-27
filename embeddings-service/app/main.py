@@ -3,8 +3,7 @@ over intfloat/multilingual-e5-base (768-dim), matching scripts/seed/04_embed.py.
 
 Kept as its own deployable (not in-process in the main FastAPI backend) so the
 API tier stays free of the torch/transformers dependency and this can scale
-independently. Deploy target: Zoho Catalyst AppSail (P4), same as the main
-backend and frontend.
+independently. Deploy target: Cloud Run (private), same as the main backend.
 """
 
 from __future__ import annotations

@@ -9,8 +9,8 @@ seeded into `document_chunks` by `scripts/seed/04_embed.py`.
 Kept as its own deployable rather than in-process in the main FastAPI backend:
 the backend stays free of the torch/transformers dependency (matches its own
 `httpx`-only, thin-app-tier convention — see `ORCHESTRATOR_STEERING.md` O-3),
-and this service can scale/redeploy independently. Deploy target: Zoho
-Catalyst AppSail, alongside the main backend and frontend (P4).
+and this service can scale/redeploy independently. Deploy target: Cloud
+Run (private), alongside the main backend.
 
 ## Run locally
 

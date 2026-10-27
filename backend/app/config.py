@@ -67,8 +67,8 @@ class Settings(BaseSettings):
     llm_profile_smart_model: str = ""
     llm_profile_smart_api_key: str = ""
     # Optional third profile for the single non-tool-calling semantic-layer
-    # call routed through Zoho Catalyst QuickML (Qwen, IN data center). Falls
-    # back to the fast profile when unset or on transport/output error.
+    # intent call (any OpenAI-compatible endpoint). Falls back to the fast
+    # profile when unset or on transport/output error.
     llm_profile_intent_base_url: str = ""
     llm_profile_intent_model: str = ""
     llm_profile_intent_api_key: str = ""
@@ -80,24 +80,16 @@ class Settings(BaseSettings):
     embeddings_model: str = ""
     embeddings_api_key: str = ""
 
-    # --- Zoho Catalyst integration (config seams; each optional) -----------
+    # --- GCP integration (each optional) -----------------------------------
     # Thread/session store backend. memory = in-process (single-worker);
-    # catalyst = Catalyst Cache (durable, multi-worker safe).
-    thread_store_backend: Literal["memory", "catalyst"] = "memory"
+    # firestore = Cloud Firestore (durable, multi-instance safe).
+    thread_store_backend: Literal["memory", "firestore"] = "memory"
     pdf_export_enabled: bool = False
-    catalyst_project_id: str = ""
-    catalyst_project_domain: str = ""
-    catalyst_oauth_token_url: str = ""
-    catalyst_oauth_client_id: str = ""
-    catalyst_oauth_client_secret: str = ""
-    catalyst_oauth_refresh_token: str = ""
-    catalyst_stratus_bucket: str = ""
-    # Cache segment for the thread store (console-created; no API to create one).
-    catalyst_cache_segment_id: str = ""
-    # Org context header (CATALYST-ORG) required by QuickML specifically —
-    # Cache/SmartBrowz work fine without it. From the console's multi-org
-    # portal (Manage Organizations), not the same as catalyst_project_id.
-    catalyst_org_id: str = ""
+    # Chromium HTML->PDF microservice (pdf-service/), e.g. its Cloud Run URL.
+    pdf_service_base_url: str = ""
+    pdf_service_api_key: str = ""
+    # Empty = infer from the runtime's application-default credentials.
+    gcp_project_id: str = ""
 
 
 @lru_cache

@@ -73,14 +73,14 @@ async def main() -> int:
         except RuntimeError as exc:
             check("memory + single worker starts", False, str(exc)[:80])
 
-        print("\n=== Startup: catalyst backend ignores worker count ===")
-        _reconfigure(thread_store_backend="catalyst", worker_concurrency="8")
+        print("\n=== Startup: firestore backend ignores worker count ===")
+        _reconfigure(thread_store_backend="firestore", worker_concurrency="8")
         try:
             async with lifespan(_FakeApp()):
                 pass
-            check("catalyst backend starts regardless of worker count", True)
+            check("firestore backend starts regardless of worker count", True)
         except RuntimeError as exc:
-            check("catalyst backend starts regardless of worker count", False, str(exc)[:80])
+            check("firestore backend starts regardless of worker count", False, str(exc)[:80])
     finally:
         for key, val in (("THREAD_STORE_BACKEND", orig_backend), ("WEB_CONCURRENCY", orig_concurrency)):
             if val is None:

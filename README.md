@@ -15,6 +15,8 @@ frontend/              Next.js app (dashboard, cases, ask, admin). See
 embeddings-service/    Standalone microservice serving multilingual-e5-base
                        embeddings for RAG retrieval. See
                        embeddings-service/README.md.
+pdf-service/           Standalone microservice rendering HTML to PDF with
+                       headless Chromium (Playwright). See "PDF service" below.
 ```
 
 **Data & schema**
@@ -101,6 +103,25 @@ The backend and agent expect a Supabase Postgres instance with the schema in
 golden demo threads, Kannada translations, and embeddings). See
 `db/README.md` for the migration list and full seeding order, and
 `dataset/README.md` for what raw source data feeds into it.
+
+## PDF service
+
+`/export/pdf` turns a chat session into a PDF. The backend builds the HTML
+(`backend/app/pdf_export.py`) and posts it to `pdf-service/`, a separate
+FastAPI app that prints it with headless Chromium and returns the PDF. It
+authenticates with a static bearer key (`PDF_SERVICE_API_KEY`), like the
+embeddings service.
+
+- **Why Chromium:** output matches what a browser renders, including Kannada
+  text (Noto fonts are installed in the image) and table layout.
+- **Why a separate service:** Chromium adds several hundred MB to the image
+  and needs about 1 GB of RAM per render. Keeping it out of the backend avoids
+  bloating `/ask` instances and stops a browser crash from affecting them. It
+  mirrors how `embeddings-service` isolates torch.
+- **Alternative considered:** WeasyPrint in-process is far lighter and needs no
+  extra service, but renders modern CSS less faithfully. The export HTML is
+  simple enough that it could be a reasonable swap if the cost of running this
+  service ever outweighs the fidelity.
 
 ## Deployment
 
