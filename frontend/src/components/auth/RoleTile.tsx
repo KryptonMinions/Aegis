@@ -7,20 +7,24 @@ export function RoleTile({
   description,
   icon: Icon,
   onClick,
+  disabled = false,
 }: {
   label: string;
   description: string;
   icon: LucideIcon;
   onClick: () => void;
+  disabled?: boolean;
 }) {
   return (
     <Card
       role="button"
       tabIndex={0}
-      onClick={onClick}
-      onKeyDown={(e) => (e.key === "Enter" || e.key === " ") && onClick()}
+      aria-disabled={disabled}
+      onClick={() => !disabled && onClick()}
+      onKeyDown={(e) => !disabled && (e.key === "Enter" || e.key === " ") && onClick()}
       className={cn(
         "cursor-pointer items-start gap-3 p-5 transition-colors hover:bg-muted/60",
+        disabled && "pointer-events-none opacity-60",
         "focus-visible:outline-none focus-visible:ring-[3px] focus-visible:ring-ring/50",
       )}
     >

@@ -1,8 +1,7 @@
 """SpecialistConfig registry (ORCHESTRATOR_STEERING.md §4).
 
-search_narratives (RAG) is still deferred (waiting on the embeddings service).
-Everything else in the full spec's tool table is now built: run_sql/get_schema
-(P1), resolve_entity/get_case (P2), mo_match/build_network/geo_query/
+The full spec's tool table is built: run_sql/get_schema
+(P1), search_narratives (RAG, via the embeddings service), resolve_entity/get_case (P2), mo_match/build_network/geo_query/
 trend_series (P3), build_pack_report (post-P6, closing the pack_report gap
 found in the demo pass — see E2E_TESTING_GAPS.md §2/§5b/§6).
 """
@@ -18,6 +17,7 @@ from .tools.entities import GetCaseTool, ResolveEntityTool
 from .tools.geo import GeoQueryTool
 from .tools.network import BuildNetworkTool
 from .tools.reports import BuildPackReportTool
+from .tools.retrieval import SearchNarrativesTool
 from .tools.sql import GetSchemaTool, RunSqlTool
 
 BlockType = Literal[
@@ -41,6 +41,7 @@ _run_sql = RunSqlTool()
 _get_schema = GetSchemaTool()
 _resolve_entity = ResolveEntityTool()
 _get_case = GetCaseTool()
+_search_narratives = SearchNarrativesTool()
 _mo_match = MoMatchTool()
 _build_network = BuildNetworkTool()
 _geo_query = GeoQueryTool()
@@ -56,7 +57,7 @@ CASE_INVESTIGATOR = SpecialistConfig(
     # left to write the final answer, and no payload registered to fall back
     # on (none of run_sql/get_schema/resolve_entity register one).
     max_iterations=10,
-    tools=[_run_sql, _get_schema, _resolve_entity, _get_case, _mo_match],
+    tools=[_run_sql, _get_schema, _search_narratives, _resolve_entity, _get_case, _mo_match],
     allowed_blocks=frozenset({"text", "table", "case_card", "mo_match", "no_answer"}),
     prompt_file="case_investigator.v1.md",
 )
@@ -75,7 +76,7 @@ REPORT_COMPOSER = SpecialistConfig(
     profile="smart",
     max_iterations=10,
     tools=[
-        _run_sql, _get_schema, _resolve_entity, _get_case, _mo_match,
+        _run_sql, _get_schema, _search_narratives, _resolve_entity, _get_case, _mo_match,
         _build_network, _geo_query, _trend_series, _build_pack_report,
     ],
     allowed_blocks=frozenset({

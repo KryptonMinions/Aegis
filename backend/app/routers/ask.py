@@ -16,6 +16,7 @@ from pydantic import ValidationError
 
 from app import agent
 from app.config import Settings
+from app.rate_limit import ask_retry_after
 from app.schemas import AskRequest, AskResponse, AssistantMessage, CurrentUser, NoAnswerBlock
 from app.security import SettingsDep, verify_jwt
 
@@ -133,6 +134,12 @@ async def _authenticate_and_validate(
     behavior (and error shapes, ASK_ENDPOINT_CONTRACT.md §2.5) can't drift.
     Runs to completion before any streaming response is opened, so 401/422
     are always plain JSON status codes -- never a mid-stream SSE error."""
+    retry_after = ask_retry_after(request, settings)
+    if retry_after is not None:
+        limited = _error(429, "rate_limited", "Too many requests. Please wait a moment and try again.", request_id)
+        limited.headers["Retry-After"] = str(retry_after)
+        return limited
+
     auth_header = request.headers.get("authorization", "")
     token = auth_header[7:].strip() if auth_header.lower().startswith("bearer ") else ""
     if not token:

@@ -2,18 +2,26 @@
 
 import { createContext, useContext, useSyncExternalStore, type ReactNode } from "react";
 import type { AuthUser, Role } from "@/lib/types/auth";
-import { login as loginRequest } from "@/lib/auth/auth-api";
+import { demoLogin } from "@/lib/auth/auth-api";
 
 const SESSION_KEY = "ksp-ask-auth-session";
 
 interface AuthContextValue {
   user: AuthUser | null;
   ready: boolean;
-  login: (credentials: { username: string; password: string }) => Promise<AuthUser>;
+  loginAs: (role: Role) => Promise<AuthUser>;
   logout: () => void;
 }
 
 const AuthContext = createContext<AuthContextValue | null>(null);
+
+// Demo personas (References/KSP_Demo_Script.pdf), one per role.
+const PERSONA_NAME: Record<Role, string> = {
+  investigating_officer: "Inspector Kavitha Nair",
+  supervisor: "SP Meena Kulkarni",
+  analyst: "Analyst Prakash Rao",
+  admin: "System Administrator",
+};
 
 const DEFAULT_UNIT: Record<Role, string> = {
   investigating_officer: "Indiranagar PS | Bengaluru Urban",
@@ -77,15 +85,15 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   // True once we're past the server-rendered pass and can trust `user`.
   const ready = useSyncExternalStore(noopSubscribe, () => true, () => false);
 
-  const login: AuthContextValue["login"] = async (credentials) => {
+  const loginAs: AuthContextValue["loginAs"] = async (requestedRole) => {
     // Role Authority Rule (AUTH_ARCHITECTURE_5.md): the only trusted role
     // is the one FastAPI returns from the server-verified JWT. The tile the
-    // user tapped on the role-select screen is never passed here and never
-    // used as an authorization input.
-    const session = await loginRequest(credentials.username, credentials.password);
+    // user tapped only picks which demo account the backend signs in; the
+    // name, unit and routing below all use the role from the response.
+    const session = await demoLogin(requestedRole);
     const authUser: AuthUser = {
       id: session.user.id,
-      name: credentials.username,
+      name: PERSONA_NAME[session.user.role],
       role: session.user.role,
       unit: DEFAULT_UNIT[session.user.role],
       accessToken: session.access_token,
@@ -97,7 +105,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const logout = () => writeUser(null);
 
   return (
-    <AuthContext.Provider value={{ user, ready, login, logout }}>
+    <AuthContext.Provider value={{ user, ready, loginAs, logout }}>
       {children}
     </AuthContext.Provider>
   );

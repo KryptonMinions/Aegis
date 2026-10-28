@@ -46,8 +46,8 @@ async def _append_thread_summary(
     settings: Settings, thread_id: str, summary: "TurnSummary"
 ) -> None:
     """R2 R-5: thread memory is best-effort — a store outage never fails the
-    turn (the in-memory backend can't raise; the catalyst one already swallows
-    its own transport errors — this is the belt-and-suspenders guard)."""
+    turn (the in-memory backend can't raise; the firestore one already swallows
+    its own API errors — this is the belt-and-suspenders guard)."""
     try:
         await get_thread_store(settings).append(thread_id, summary)
     except Exception:  # noqa: BLE001

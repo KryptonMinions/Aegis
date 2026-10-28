@@ -109,9 +109,9 @@ async def main() -> int:
 
         class _BrokenStore:
             async def append(self, *a, **k):
-                raise RuntimeError("catalyst down")
+                raise RuntimeError("store down")
             async def get_recent(self, *a, **k):
-                raise RuntimeError("catalyst down")
+                raise RuntimeError("store down")
         agent.get_thread_store = lambda s: _BrokenStore()
         try:
             resp = await agent.run_turn(_req("q", tid="thread-x"), _user(), settings, request_id="rx")

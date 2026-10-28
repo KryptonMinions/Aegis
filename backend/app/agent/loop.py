@@ -252,9 +252,10 @@ class AgentLoop:
         if tool is None:
             return {"ok": False, "error": f"unknown tool '{call.name}'"}
         try:
-            result = await asyncio.wait_for(
-                tool.run(call.arguments, ctx), timeout=self._settings.ask_tool_timeout_s
-            )
+            # A tool may declare its own timeout (e.g. search_narratives, which can
+            # wait on a scale-to-zero cold start); otherwise the global one applies.
+            timeout = getattr(tool, "timeout_s", None) or self._settings.ask_tool_timeout_s
+            result = await asyncio.wait_for(tool.run(call.arguments, ctx), timeout=timeout)
         except asyncio.TimeoutError:
             return {"ok": False, "error": f"tool '{call.name}' timed out"}
         except Exception as exc:  # noqa: BLE001 — tool errors are values, not loop exceptions

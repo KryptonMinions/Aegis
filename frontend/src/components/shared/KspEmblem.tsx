@@ -12,7 +12,7 @@ export function KspEmblem({
   return (
     <div className={cn("flex items-center gap-2", className)}>
       <Image
-        src="/app/Seal_of_Karnataka.svg"
+        src="/Seal_of_Karnataka.svg"
         alt="Seal of Karnataka"
         width={24}
         height={24}

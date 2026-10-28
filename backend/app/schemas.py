@@ -10,6 +10,10 @@ class LoginRequest(BaseModel):
     password: str
 
 
+class DemoLoginRequest(BaseModel):
+    role: Role
+
+
 class SessionUser(BaseModel):
     id: str
     role: Role
@@ -197,7 +201,7 @@ class PackReportBlock(BaseModel):
     period: str
     metrics: list[TrendMetric]
     exportable: bool | None = None
-    # Signed download URL for the rendered PDF (SmartBrowz -> Stratus). Set
+    # Download URL for the rendered PDF (unused so far; /export/pdf is stateless). Set
     # server-side when PDF_EXPORT_ENABLED and the pack is exportable.
     export_url: str | None = None
     citations: list[Citation] | None = None

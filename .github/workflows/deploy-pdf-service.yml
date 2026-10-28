@@ -1,0 +1,27 @@
+name: Deploy PDF Service to Cloud Run
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'pdf-service/**'
+      - '.github/workflows/deploy-pdf-service.yml'
+      - '.github/workflows/cloud-run-deploy.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  id-token: write
+
+jobs:
+  deploy:
+    uses: ./.github/workflows/cloud-run-deploy.yml
+    with:
+      service: ksp-pdf
+      context: pdf-service
+      # Chromium needs ~1 GB per render; export is rare so it can scale to zero.
+      memory: 2Gi
+      cpu: '2'
+      min_instances: '0'
+      # Same Secret Manager value the backend gets as PDF_SERVICE_API_KEY.
+      secrets: PDF_API_KEY=PDF_SERVICE_API_KEY:latest

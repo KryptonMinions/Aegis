@@ -7,11 +7,9 @@ context' prompt section pulls the last 6).
 Two backends:
 - `memory` — process-global dict, per-thread asyncio lock. Why the backend
   must run `uvicorn --workers 1` (O-13): this state doesn't cross processes.
-- `catalyst` — Zoho Catalyst Cache. Durable and multi-worker safe (each worker
-  hits the same remote cache). One cache key per thread_id holding a
-  JSON-serialized list of turns. Verified live against a real segment before
-  being wired in here (insert/retrieve/TTL all confirmed against
-  api.catalyst.zoho.<tld>/baas/v1/project/{id}/segment/{id}/cache).
+- `firestore` — Cloud Firestore. Durable and multi-instance safe. One doc per
+  thread_id in `ask_threads` holding the turn list plus an `expires_at` field
+  (enable a Firestore TTL policy on it; reads also ignore expired docs).
 """
 
 from __future__ import annotations
@@ -20,17 +18,17 @@ import asyncio
 import json
 import time
 from dataclasses import asdict, dataclass, field
+from datetime import datetime, timezone
 from typing import Any, Protocol
 
-import httpx
+from google.api_core.exceptions import GoogleAPICallError
+from google.auth.exceptions import GoogleAuthError
 
-from app.catalyst import CatalystError, cache_url, catalyst_headers
 from app.config import Settings
 
-# R2 R-5: thread memory is best-effort. A backend outage (HTTP error, or an
-# OAuth refresh failure surfacing as CatalystError) degrades to no context,
-# never a failed turn.
-_THREAD_STORE_ERRORS = (httpx.HTTPError, CatalystError)
+# R2 R-5: thread memory is best-effort. A backend outage (Firestore API error
+# or credential failure) degrades to no context, never a failed turn.
+_THREAD_STORE_ERRORS = (GoogleAPICallError, GoogleAuthError)
 
 
 @dataclass
@@ -85,14 +83,16 @@ class InMemoryThreadStore:
 # Turns stored per thread, independent of get_recent's requested `limit`
 # (which is the ≤6 prompt-context window) — a wider history is kept so a
 # later turn can still see further back if some future caller asks for more.
-_CATALYST_MAX_STORED_TURNS = 20
+_MAX_STORED_TURNS = 20
+_COLLECTION = "ask_threads"
 
 
-class CatalystCacheThreadStore:
+class FirestoreThreadStore:
     def __init__(self, settings: Settings) -> None:
-        self._settings = settings
-        self._segment_id = settings.catalyst_cache_segment_id
-        self._ttl_hours = max(1, round(settings.ask_thread_ttl_s / 3600))
+        from google.cloud import firestore  # lazy: memory mode needs no GCP creds
+
+        self._ttl_s = settings.ask_thread_ttl_s
+        self._db = firestore.AsyncClient(project=settings.gcp_project_id or None)
         self._locks: dict[str, asyncio.Lock] = {}
         self._locks_guard = asyncio.Lock()
 
@@ -104,38 +104,19 @@ class CatalystCacheThreadStore:
                 self._locks[thread_id] = lock
             return lock
 
-    async def _get_raw(self, thread_id: str) -> list[dict[str, Any]]:
-        headers = await catalyst_headers(self._settings, json_body=False)
-        async with httpx.AsyncClient(timeout=15) as client:
-            resp = await client.get(
-                cache_url(self._settings, self._segment_id),
-                headers=headers,
-                params={"cacheKey": thread_id},
-            )
-        if resp.status_code == 404:
-            return []
-        resp.raise_for_status()
-        raw_value = (resp.json().get("data") or {}).get("cache_value")
-        if not raw_value:
-            return []
-        try:
-            return json.loads(raw_value)
-        except json.JSONDecodeError:
-            return []
+    def _doc(self, thread_id: str):
+        return self._db.collection(_COLLECTION).document(thread_id)
 
-    async def _put_raw(self, thread_id: str, items: list[dict[str, Any]]) -> None:
-        headers = await catalyst_headers(self._settings)
-        async with httpx.AsyncClient(timeout=15) as client:
-            resp = await client.post(
-                cache_url(self._settings, self._segment_id),
-                headers=headers,
-                json={
-                    "cache_name": thread_id,
-                    "cache_value": json.dumps(items),
-                    "expiry_in_hours": self._ttl_hours,
-                },
-            )
-        resp.raise_for_status()
+    async def _get_raw(self, thread_id: str) -> list[dict[str, Any]]:
+        snap = await self._doc(thread_id).get()
+        if not snap.exists:
+            return []
+        data = snap.to_dict() or {}
+        # TTL deletion in Firestore lags by up to ~24h, so enforce expiry here too.
+        exp = data.get("expires_at")
+        if exp is not None and exp.timestamp() < time.time():
+            return []
+        return data.get("turns") or []
 
     async def append(self, thread_id: str, turn: TurnSummary) -> None:
         lock = await self._lock_for(thread_id)
@@ -143,8 +124,10 @@ class CatalystCacheThreadStore:
             try:
                 items = await self._get_raw(thread_id)
                 items.append(asdict(turn))
-                items = items[-_CATALYST_MAX_STORED_TURNS:]
-                await self._put_raw(thread_id, items)
+                await self._doc(thread_id).set({
+                    "turns": items[-_MAX_STORED_TURNS:],
+                    "expires_at": datetime.fromtimestamp(time.time() + self._ttl_s, tz=timezone.utc),
+                })
             except _THREAD_STORE_ERRORS:
                 # Conversation memory is a quality-of-life feature, not
                 # critical path — never fail the user's turn over it.
@@ -155,21 +138,20 @@ class CatalystCacheThreadStore:
             items = await self._get_raw(thread_id)
         except _THREAD_STORE_ERRORS:
             return []
-        turns = [TurnSummary(**item) for item in items]
-        return turns[-limit:]
+        return [TurnSummary(**item) for item in items][-limit:]
 
 
 _memory_store: InMemoryThreadStore | None = None
-_catalyst_store: CatalystCacheThreadStore | None = None
+_firestore_store: FirestoreThreadStore | None = None
 
 
 def get_thread_store(settings: Settings) -> ThreadStore:
     """Process-global singleton (O-13) — never construct a store per-request."""
-    global _memory_store, _catalyst_store
-    if settings.thread_store_backend == "catalyst":
-        if _catalyst_store is None:
-            _catalyst_store = CatalystCacheThreadStore(settings)
-        return _catalyst_store
+    global _memory_store, _firestore_store
+    if settings.thread_store_backend == "firestore":
+        if _firestore_store is None:
+            _firestore_store = FirestoreThreadStore(settings)
+        return _firestore_store
     if _memory_store is None:
         _memory_store = InMemoryThreadStore(settings.ask_thread_ttl_s)
     return _memory_store

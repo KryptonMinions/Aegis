@@ -8,8 +8,12 @@ Run: cd backend && ASK_ENGINE=agent python -m scripts.test_p6_demo_pass
 """
 
 import json
+import os
 import sys
 from pathlib import Path
+
+os.environ["ASK_RATE_LIMIT_PER_MINUTE"] = "0"  # this script fires many /ask calls from one client
+os.environ["ASK_RATE_LIMIT_PER_HOUR"] = "0"
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 

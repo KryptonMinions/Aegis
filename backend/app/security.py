@@ -65,6 +65,9 @@ def verify_jwt(token: str, settings: Settings) -> CurrentUser:
             signing_key.key,
             algorithms=["ES256", "RS256"],
             audience="authenticated",
+            # Tokens are used right after sign-in, so a few seconds of clock
+            # skew vs Supabase would otherwise reject them as "not yet valid".
+            leeway=10,
         )
     except (jwt.PyJWTError, httpx.HTTPError) as exc:
         raise HTTPException(

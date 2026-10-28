@@ -1,4 +1,4 @@
-name: Deploy Frontend to Web Client Hosting
+name: Deploy Frontend to Firebase Hosting
 
 on:
   push:
@@ -8,10 +8,13 @@ on:
       - '.github/workflows/deploy-frontend.yml'
   workflow_dispatch:
 
-# Serialize deploys so the commit-back push (build-and-deploy) can't race a second run.
 concurrency:
   group: deploy-frontend
   cancel-in-progress: false
+
+permissions:
+  contents: read
+  id-token: write
 
 jobs:
   lint-and-typecheck:
@@ -39,8 +42,6 @@ jobs:
   build-and-deploy:
     needs: lint-and-typecheck
     runs-on: ubuntu-latest
-    permissions:
-      contents: write
     steps:
       - uses: actions/checkout@v4
 
@@ -53,13 +54,8 @@ jobs:
       - run: npm ci
         working-directory: frontend
 
-      - name: Bump client-package.json version
-        run: bash scripts/bump-client-version.sh frontend/public/client-package.json
-
-      # CRITICAL: .env.local must NOT exist during production build.
-      # .env.local (localhost API URL) overrides .env.production and breaks
-      # the deployed app. The CI runner has no .env.local (clean checkout),
-      # so this is inherently safe here — but verify explicitly.
+      # .env.local (localhost API URL) overrides the build-time env and would
+      # break the deployed app; it must stay gitignored.
       - name: Verify no .env.local override
         working-directory: frontend
         run: |
@@ -72,15 +68,7 @@ jobs:
         working-directory: frontend
         run: npm run build
         env:
-          NEXT_PUBLIC_API_URL: ${{ secrets.NEXT_PUBLIC_API_URL }}
-
-      - name: Verify basePath applied
-        working-directory: frontend
-        run: |
-          if ! grep -q '/app/_next' out/index.html; then
-            echo "ERROR: basePath /app not applied — asset refs missing /app/ prefix" >&2
-            exit 1
-          fi
+          NEXT_PUBLIC_API_URL: ${{ vars.NEXT_PUBLIC_API_URL }}
 
       - name: Verify nested routes exported
         working-directory: frontend
@@ -92,21 +80,13 @@ jobs:
             fi
           done
 
-      - name: Install Catalyst CLI
-        run: npm install -g zcatalyst-cli
+      - uses: google-github-actions/auth@v2
+        with:
+          workload_identity_provider: ${{ vars.GCP_WIF_PROVIDER }}
+          service_account: ${{ vars.GCP_DEPLOY_SA }}
 
-      - name: Deploy to Web Client Hosting
-        run: >
-          catalyst deploy --only client
-          --dc in
-          --project "${{ secrets.CATALYST_PROJECT_ID }}"
-          --org "${{ secrets.CATALYST_ORG_ID }}"
-          --token "${{ secrets.CATALYST_TOKEN }}"
-
-      - name: Commit version bump
-        run: |
-          git config user.name "github-actions[bot]"
-          git config user.email "github-actions[bot]@users.noreply.github.com"
-          git add frontend/public/client-package.json
-          git diff --cached --quiet || git commit -m "chore: bump client-package.json [skip ci]"
-          git push
+      # firebase-tools picks up the application-default credentials written
+      # by the auth step above.
+      - name: Deploy to Firebase Hosting
+        working-directory: frontend
+        run: npx --yes firebase-tools@13 deploy --only hosting --project "${{ vars.GCP_PROJECT_ID }}"

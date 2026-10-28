@@ -15,6 +15,8 @@ frontend/              Next.js app (dashboard, cases, ask, admin). See
 embeddings-service/    Standalone microservice serving multilingual-e5-base
                        embeddings for RAG retrieval. See
                        embeddings-service/README.md.
+pdf-service/           Standalone microservice rendering HTML to PDF with
+                       headless Chromium (Playwright). See "PDF service" below.
 ```
 
 **Data & schema**
@@ -41,15 +43,6 @@ steering-docs/         Architecture and design specs (auth, orchestrator,
 References/            Datathon challenge brief PDFs (data discovery, demo
                        script, evaluation criteria, semantic layer, trust
                        design).
-```
-
-**Deployment config**
-
-```
-client/                Unused default Catalyst client scaffold, superseded by
-                       frontend/out (the actual deployed static export).
-catalyst.json,         Zoho Catalyst deployment config (see Deployment
-.catalystrc            below).
 ```
 
 ## Running locally
@@ -111,27 +104,60 @@ golden demo threads, Kannada translations, and embeddings). See
 `db/README.md` for the migration list and full seeding order, and
 `dataset/README.md` for what raw source data feeds into it.
 
+## Demo access and rate limiting
+
+There are no passwords: the login page shows four role tiles (Investigating
+Officer, Supervisor, Crime Analyst, Admin). Clicking one calls
+`POST /auth/demo-login`, which signs in the seeded Supabase demo user for that
+role and returns a normal Supabase JWT, so role gating, the audit log and RLS
+work exactly as before. Enable it with `PASSWORDLESS_LOGIN_ENABLED=true`; it is
+off by default, and because anyone can pick any role it should only run where
+all data is synthetic.
+
+`/ask`, `/ask/stream` and `/auth/demo-login` are rate limited per client IP
+(`ASK_RATE_LIMIT_PER_MINUTE`, `ASK_RATE_LIMIT_PER_HOUR`,
+`LOGIN_RATE_LIMIT_PER_MINUTE`; 0 disables), returning 429 with `Retry-After`.
+Counters are per Cloud Run instance, so the deploy workflow also caps
+`--max-instances`.
+
+## PDF service
+
+`/export/pdf` turns a chat session into a PDF. The backend builds the HTML
+(`backend/app/pdf_export.py`) and posts it to `pdf-service/`, a separate
+FastAPI app that prints it with headless Chromium and returns the PDF. It
+authenticates with a static bearer key (`PDF_SERVICE_API_KEY`), like the
+embeddings service.
+
+- **Why Chromium:** output matches what a browser renders, including Kannada
+  text (Noto fonts are installed in the image) and table layout.
+- **Why a separate service:** Chromium adds several hundred MB to the image
+  and needs about 1 GB of RAM per render. Keeping it out of the backend avoids
+  bloating `/ask` instances and stops a browser crash from affecting them. It
+  mirrors how `embeddings-service` isolates torch.
+- **Alternative considered:** WeasyPrint in-process is far lighter and needs no
+  extra service, but renders modern CSS less faithfully. The export HTML is
+  simple enough that it could be a reasonable swap if the cost of running this
+  service ever outweighs the fidelity.
+
 ## Deployment
 
-The app is hosted entirely on [Zoho Catalyst](https://www.catalyst.zoho.com/),
-Zoho's serverless application platform, across three of its services:
+Everything runs on Google Cloud in `asia-south1` (Mumbai), apart from Supabase
+(Postgres/Auth), Sarvam (speech-to-text) and the Gemini API, which are external.
 
-- **AppSail** — runs the `backend` and `embeddings-service` as separate
-  Docker containers. `catalyst.json` declares the AppSail entry for the
-  backend; `backend/Dockerfile` and `embeddings-service/Dockerfile` both bind
-  to the port Catalyst injects via `X_ZOHO_CATALYST_LISTEN_PORT` (falling
-  back to 8080 for local `docker run`).
-- **Client** — serves the frontend's Next.js static export (`frontend/out`)
-  as a static site; also declared in `catalyst.json`.
-- **Cache / Stratus / QuickML** — supporting Catalyst services used at
-  runtime by the backend (response caching, object storage, and the
-  in-platform LLM used for intent classification respectively); configured
-  via env vars, not declared in `catalyst.json`.
+| Component | Runs on | Deployed by |
+|---|---|---|
+| `backend` | Cloud Run (`ksp-backend`, scales to zero) | `.github/workflows/deploy-backend.yml` |
+| `embeddings-service` | Cloud Run (`ksp-embeddings`, 4 GiB, scales to zero, model baked into the image) | `deploy-embeddings.yml` |
+| `pdf-service` | Cloud Run (`ksp-pdf`, scales to zero) | `deploy-pdf-service.yml` |
+| `frontend` (static export) | Firebase Hosting | `deploy-frontend.yml` |
+| Chat thread memory | Firestore (`ask_threads`, TTL on `expires_at`) | created once, see the runbook |
+| Secrets | Secret Manager, mounted as Cloud Run env vars | created once, see the runbook |
 
-Production env vars (Supabase, LLM profiles, Catalyst OAuth/cache/Stratus
-settings) are configured per-environment in Catalyst, not committed to the
-repo — `backend/app-config.json` (gitignored) holds the local copy used for
-deploys. Deployed URLs are intentionally not listed here; ask a maintainer
-for the current environment link.
+The three Cloud Run workflows share `cloud-run-deploy.yml`. GitHub Actions
+authenticates to GCP with Workload Identity Federation, so there are no
+long-lived keys in the repo. Settings come from GitHub repo variables and
+Secret Manager, not from committed files.
 
-
+One-time project setup (APIs, service accounts, Workload Identity Federation,
+secrets, Firestore TTL, Firebase, first deploy order and smoke tests) is in
+[GCP_SETUP_RUNBOOK.md](GCP_SETUP_RUNBOOK.md).

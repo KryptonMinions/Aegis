@@ -263,4 +263,5 @@ Architecture.md
 # raw query text, local ops telemetry only, never committed.
 backend/logs/
 backend/app-config.json
-E2E_TESTING_GAPS.md
+E2E_TESTING_GAPS.md 
+GCP_MIGRATION_PLAN.md

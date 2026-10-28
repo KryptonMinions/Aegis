@@ -1,4 +1,4 @@
-name: Deploy Backend to AppSail
+name: Deploy Backend to Cloud Run
 
 on:
   push:
@@ -6,7 +6,12 @@ on:
     paths:
       - 'backend/**'
       - '.github/workflows/deploy-backend.yml'
+      - '.github/workflows/cloud-run-deploy.yml'
   workflow_dispatch:
+
+permissions:
+  contents: read
+  id-token: write
 
 jobs:
   lint:
@@ -25,9 +30,9 @@ jobs:
 
       - run: pip install -r requirements.txt
 
-      # Basic import check — catches broken imports before deploy.
-      # Dummy values satisfy the required Settings fields (app.config); real
-      # secrets live in the Catalyst console, not CI (see steering doc §5.2).
+      # Basic import check — catches broken imports before deploy. Dummy
+      # values satisfy the required Settings fields (app.config); real
+      # secrets live in Secret Manager, not CI.
       - run: python -c "from app.main import app; print('Import OK')"
         env:
           SUPABASE_URL: https://ci.invalid
@@ -36,27 +41,33 @@ jobs:
 
   deploy:
     needs: lint
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-
-      - uses: actions/setup-node@v4
-        with:
-          node-version: '20'
-
-      - name: Install Catalyst CLI
-        run: npm install -g zcatalyst-cli
-
-      - name: Build Docker image (linux/amd64)
-        working-directory: backend
-        run: docker build --platform linux/amd64 -t ksp-backend .
-
-      # AppSail runs linux/amd64. The --platform flag above is explicit even though
-      # ubuntu-latest is amd64 natively (see steering doc §5.1).
-      - name: Deploy to AppSail
-        run: >
-          catalyst deploy --only appsail
-          --dc in
-          --project "${{ secrets.CATALYST_PROJECT_ID }}"
-          --org "${{ secrets.CATALYST_ORG_ID }}"
-          --token "${{ secrets.CATALYST_TOKEN }}"
+    uses: ./.github/workflows/cloud-run-deploy.yml
+    with:
+      service: ksp-backend
+      context: backend
+      memory: 1Gi
+      # Scale to zero: cold starts are fine for this app, and it costs nothing idle.
+      min_instances: '0'
+      # Settings not listed here use their defaults from app/config.py.
+      env_vars: |-
+        ^@^THREAD_STORE_BACKEND=firestore
+        @PDF_EXPORT_ENABLED=true
+        @PASSWORDLESS_LOGIN_ENABLED=true
+        @ASK_MAX_TURN_SECONDS=60
+        @GCP_PROJECT_ID=${{ vars.GCP_PROJECT_ID }}
+        @FRONTEND_ORIGIN=${{ vars.FRONTEND_ORIGIN }}
+        @EMBEDDINGS_BASE_URL=${{ vars.EMBEDDINGS_BASE_URL }}
+        @PDF_SERVICE_BASE_URL=${{ vars.PDF_SERVICE_BASE_URL }}
+        @LLM_PROFILE_FAST_BASE_URL=${{ vars.LLM_PROFILE_FAST_BASE_URL }}
+        @LLM_PROFILE_FAST_MODEL=${{ vars.LLM_PROFILE_FAST_MODEL }}
+        @LLM_PROFILE_SMART_BASE_URL=${{ vars.LLM_PROFILE_SMART_BASE_URL }}
+        @LLM_PROFILE_SMART_MODEL=${{ vars.LLM_PROFILE_SMART_MODEL }}
+      secrets: |-
+        SUPABASE_URL=SUPABASE_URL:latest,
+        SUPABASE_PUBLISHABLE_KEY=SUPABASE_PUBLISHABLE_KEY:latest,
+        SUPABASE_SECRET_KEY=SUPABASE_SECRET_KEY:latest,
+        SARVAM_API_KEY=SARVAM_API_KEY:latest,
+        LLM_PROFILE_FAST_API_KEY=LLM_PROFILE_FAST_API_KEY:latest,
+        LLM_PROFILE_SMART_API_KEY=LLM_PROFILE_SMART_API_KEY:latest,
+        EMBEDDINGS_API_KEY=EMBEDDINGS_API_KEY:latest,
+        PDF_SERVICE_API_KEY=PDF_SERVICE_API_KEY:latest

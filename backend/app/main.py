@@ -23,7 +23,7 @@ async def lifespan(app: FastAPI):
         message = (
             f"THREAD_STORE_BACKEND=memory is not safe with WEB_CONCURRENCY="
             f"{worker_count} (in-process store, no cross-worker sharing). Set "
-            "THREAD_STORE_BACKEND=catalyst or run with a single worker."
+            "THREAD_STORE_BACKEND=firestore or run with a single worker."
         )
         logger.fatal(message)
         raise RuntimeError(message)

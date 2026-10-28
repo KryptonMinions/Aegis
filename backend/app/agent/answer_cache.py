@@ -2,10 +2,10 @@
 
 In-process TTL cache only. This mirrors InMemoryThreadStore's "single worker"
 constraint — the R0 startup guard already refuses to boot memory-backed shared
-state with WEB_CONCURRENCY>1, and the catalyst deployment runs one worker.
+state with WEB_CONCURRENCY>1, and Cloud Run instances each keep their own cache (harmless, it is only an optimisation).
 
-# ponytail: in-process dict, no shared backend. Add a catalyst-backed impl
-# (mirroring CatalystCacheThreadStore) only if a multi-worker deploy needs a
+# ponytail: in-process dict, no shared backend. Add a Firestore-backed impl
+# (mirroring FirestoreThreadStore) only if a multi-worker deploy needs a
 # shared answer cache — until then it is dead code.
 """
 

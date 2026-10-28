@@ -1,0 +1,28 @@
+name: Deploy Embeddings Service to Cloud Run
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'embeddings-service/**'
+      - '.github/workflows/deploy-embeddings.yml'
+      - '.github/workflows/cloud-run-deploy.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  id-token: write
+
+jobs:
+  deploy:
+    uses: ./.github/workflows/cloud-run-deploy.yml
+    with:
+      service: ksp-embeddings
+      context: embeddings-service
+      # torch + multilingual-e5-base need the RAM. Scales to zero: the first
+      # narrative search after idle waits ~20-30s for a cold start (the model is
+      # baked into the image, so there is no download).
+      memory: 4Gi
+      cpu: '2'
+      min_instances: '0'
+      secrets: EMBEDDINGS_API_KEY=EMBEDDINGS_API_KEY:latest
